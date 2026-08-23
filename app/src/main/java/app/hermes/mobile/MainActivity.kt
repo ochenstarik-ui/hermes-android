@@ -10,25 +10,32 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.hermes.mobile.core.auth.PkceLoopbackAuthManager
+import app.hermes.mobile.core.model.HermesHostId
+import app.hermes.mobile.core.model.UnifiedSessionId
 import app.hermes.mobile.core.network.HermesRestClient
-import app.hermes.mobile.core.network.JsonRpcGatewayClient
-import app.hermes.mobile.core.repository.ConnectionRepository
-import app.hermes.mobile.core.repository.HermesGatewayRepository
+import app.hermes.mobile.core.repository.UnifiedSessionRepository
+import app.hermes.mobile.core.runtime.HermesConnectionManager
 import app.hermes.mobile.core.security.EncryptedTokenVault
+import app.hermes.mobile.core.storage.HermesDatabase
+import app.hermes.mobile.core.storage.MigrationHelper
 import app.hermes.mobile.feature.chat.ChatScreen
 import app.hermes.mobile.feature.chat.ChatViewModel
-import app.hermes.mobile.feature.connections.ConnectionsScreen
-import app.hermes.mobile.feature.connections.ConnectionsViewModel
-import app.hermes.mobile.feature.sessions.SessionsScreen
-import app.hermes.mobile.feature.sessions.SessionsViewModel
+import app.hermes.mobile.feature.hosts.HostsScreen
+import app.hermes.mobile.feature.hosts.HostsViewModel
+import app.hermes.mobile.feature.native_sessions.NativeSessionsScreen
+import app.hermes.mobile.feature.native_sessions.NativeSessionsViewModel
 import app.hermes.mobile.feature.settings.SettingsScreen
+import app.hermes.mobile.feature.unified_sessions.UnifiedSessionsScreen
+import app.hermes.mobile.feature.unified_sessions.UnifiedSessionsViewModel
 import app.hermes.mobile.ui.theme.HermesAndroidTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -36,12 +43,28 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        val db = HermesDatabase.getInstance(applicationContext)
+        val hostDao = db.hostDao()
+        val sessionDao = db.unifiedSessionDao()
         val tokenVault = EncryptedTokenVault(applicationContext)
         val restClient = HermesRestClient()
-        val gatewayClient = JsonRpcGatewayClient()
         val pkceAuthManager = PkceLoopbackAuthManager(restClient, tokenVault)
-        val connectionRepo = ConnectionRepository(applicationContext)
-        val gatewayRepo = HermesGatewayRepository(restClient, gatewayClient, tokenVault)
+
+        // Migrate legacy connections from DataStore if present
+        lifecycleScope.launch {
+            MigrationHelper.migrateLegacyConnections(applicationContext, hostDao)
+        }
+
+        val connectionManager = HermesConnectionManager(
+            hostDao = hostDao,
+            tokenVault = tokenVault,
+            restClient = restClient
+        )
+
+        val unifiedSessionRepo = UnifiedSessionRepository(
+            connectionManager = connectionManager,
+            sessionDao = sessionDao
+        )
 
         setContent {
             HermesAndroidTheme {
@@ -49,9 +72,9 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    HermesAppNavigation(
-                        connectionRepo = connectionRepo,
-                        gatewayRepo = gatewayRepo,
+                    HermesUnifiedAppNavigation(
+                        connectionManager = connectionManager,
+                        sessionRepo = unifiedSessionRepo,
                         tokenVault = tokenVault,
                         pkceAuthManager = pkceAuthManager
                     )
@@ -62,66 +85,77 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun HermesAppNavigation(
-    connectionRepo: ConnectionRepository,
-    gatewayRepo: HermesGatewayRepository,
+fun HermesUnifiedAppNavigation(
+    connectionManager: HermesConnectionManager,
+    sessionRepo: UnifiedSessionRepository,
     tokenVault: EncryptedTokenVault,
     pkceAuthManager: PkceLoopbackAuthManager
 ) {
     val navController = rememberNavController()
 
-    val connectionsViewModel = remember {
-        ConnectionsViewModel(connectionRepo, gatewayRepo, tokenVault, pkceAuthManager)
+    val unifiedSessionsViewModel = remember {
+        UnifiedSessionsViewModel(sessionRepo, connectionManager)
     }
-    val sessionsViewModel = remember {
-        SessionsViewModel(gatewayRepo)
-    }
-    val chatViewModel = remember {
-        ChatViewModel(gatewayRepo)
+    val hostsViewModel = remember {
+        HostsViewModel(connectionManager, tokenVault, pkceAuthManager = pkceAuthManager)
     }
 
     NavHost(
         navController = navController,
-        startDestination = "connections"
+        startDestination = "unified_sessions"
     ) {
-        composable("connections") {
-            ConnectionsScreen(
-                viewModel = connectionsViewModel,
-                onNavigateToSessions = { connId ->
-                    sessionsViewModel.loadSessions()
-                    navController.navigate("sessions/$connId")
+        composable("unified_sessions") {
+            UnifiedSessionsScreen(
+                viewModel = unifiedSessionsViewModel,
+                onNavigateToChat = { sessionId ->
+                    navController.navigate("chat/${sessionId.value}")
+                },
+                onNavigateToHosts = {
+                    navController.navigate("hosts")
                 }
             )
         }
 
         composable(
-            route = "sessions/{connectionId}",
-            arguments = listOf(navArgument("connectionId") { type = NavType.StringType })
+            route = "chat/{unifiedSessionId}",
+            arguments = listOf(navArgument("unifiedSessionId") { type = NavType.StringType })
         ) { backStackEntry ->
-            val connId = backStackEntry.arguments?.getString("connectionId") ?: ""
-            SessionsScreen(
-                viewModel = sessionsViewModel,
-                connectionId = connId,
+            val sessionIdStr = backStackEntry.arguments?.getString("unifiedSessionId") ?: ""
+            val sessionId = UnifiedSessionId(sessionIdStr)
+            val chatViewModel = remember(sessionIdStr) {
+                ChatViewModel(sessionRepo, connectionManager, sessionId)
+            }
+            ChatScreen(
+                viewModel = chatViewModel,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable("hosts") {
+            HostsScreen(
+                viewModel = hostsViewModel,
                 onNavigateBack = {
                     navController.popBackStack()
                 },
-                onNavigateToChat = { durableSessionId ->
-                    navController.navigate("chat/$connId/$durableSessionId")
+                onNavigateToNativeSessions = { hostId ->
+                    navController.navigate("native_sessions/${hostId.value}")
                 }
             )
         }
 
         composable(
-            route = "chat/{connectionId}/{durableSessionId}",
-            arguments = listOf(
-                navArgument("connectionId") { type = NavType.StringType },
-                navArgument("durableSessionId") { type = NavType.StringType }
-            )
+            route = "native_sessions/{hostId}",
+            arguments = listOf(navArgument("hostId") { type = NavType.StringType })
         ) { backStackEntry ->
-            val durableSessionId = backStackEntry.arguments?.getString("durableSessionId") ?: ""
-            ChatScreen(
-                viewModel = chatViewModel,
-                durableSessionId = durableSessionId,
+            val hostIdStr = backStackEntry.arguments?.getString("hostId") ?: ""
+            val hostId = HermesHostId(hostIdStr)
+            val nativeSessionsViewModel = remember(hostIdStr) {
+                NativeSessionsViewModel(connectionManager, hostId)
+            }
+            NativeSessionsScreen(
+                viewModel = nativeSessionsViewModel,
                 onNavigateBack = {
                     navController.popBackStack()
                 }

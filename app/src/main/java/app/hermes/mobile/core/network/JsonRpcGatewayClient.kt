@@ -58,7 +58,7 @@ class JsonRpcGatewayClient(
         .readTimeout(0, TimeUnit.MILLISECONDS) // infinite for websockets
         .pingInterval(30, TimeUnit.SECONDS)
         .build(),
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -208,8 +208,10 @@ class JsonRpcGatewayClient(
                     gatewayReadyDeferred.complete(Unit)
                 }
             }
-            scope.launch {
-                _events.emit(event)
+            if (!_events.tryEmit(event)) {
+                scope.launch {
+                    _events.emit(event)
+                }
             }
         } catch (e: Exception) {
             // Ignore corrupted frames gracefully or log if debug

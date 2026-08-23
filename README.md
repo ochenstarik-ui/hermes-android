@@ -1,57 +1,81 @@
 # Hermes Android Native Remote Client
 
-A production-grade, native Android client application for **Hermes**, implementing Protocol & Architecture Contract v1.
+A production-grade, native Android client application for **Hermes**, implementing Protocol & Architecture Contract v1 with **Multi-Hermes Connection Manager** and **Unified Sessions**.
 
-Built with **Kotlin**, **Jetpack Compose (Material 3)**, **Coroutines**, **OkHttp**, and **Android Keystore (EncryptedSharedPreferences)**.
+Built with **Kotlin**, **Jetpack Compose (Material 3)**, **Coroutines**, **Room Database**, **OkHttp**, and **Android Keystore (EncryptedSharedPreferences)**.
 
 ---
 
 ## 🌟 Architecture Overview
 
 ```
-   ┌─────────────────────────────────────────────────────────┐
-   │                  Hermes Android Client                  │
-   │  ┌───────────────────────────────────────────────────┐  │
-   │  │              Jetpack Compose UI (M3)              │  │
-   │  │   • Connections  • Sessions  • Chat & Approvals   │  │
-   │  └─────────────────────────┬─────────────────────────┘  │
-   │                            │ StateFlow / Actions         │
-   │  ┌─────────────────────────▼─────────────────────────┐  │
-   │  │                Hermes Gateway Layer               │  │
-   │  │   • Reconnection Loop with Exponential Backoff    │  │
-   │  │   • Session State Reconciliation                  │  │
-   │  │   • Event Stream Dispatcher                       │  │
-   │  └──────────┬──────────────────────────┬─────────────┘  │
-   │             │ JSON-RPC / Ticket        │ PKCE Auth       │
-   │  ┌──────────▼──────────┐    ┌──────────▼──────────────┐  │
-   │  │   OkHttp WebSocket  │    │ Loopback Auth Server    │  │
-   │  │   (Single-Use Auth) │    │ (127.0.0.1:<port>)      │  │
-   │  └──────────┬──────────┘    └──────────┬──────────────┘  │
-   └─────────────┼──────────────────────────┼─────────────────┘
-                 │                          │
-                 ▼                          ▼
-   ┌─────────────────────────────────────────────────────────┐
-   │                      Hermes Host                        │
-   │                    (`hermes serve`)                     │
-   │                                                         │
-   │   • `GET /api/status`           • `GET /auth/native/...`│
-   │   • `POST /api/auth/ws-ticket`  • `WS /ws?ticket=...`   │
-   └─────────────────────────────────────────────────────────┘
+   ┌─────────────────────────────────────────────────────────────────────────┐
+   │                          Hermes Android Client                          │
+   │  ┌───────────────────────────────────────────────────────────────────┐  │
+   │  │                      Jetpack Compose UI (M3)                      │  │
+   │  │   • Multi-Host Switcher • Unified Sessions • Attributed Chat      │  │
+   │  └─────────────────────────────────┬─────────────────────────────────┘  │
+   │                                    │ StateFlow / Actions                │
+   │  ┌─────────────────────────────────▼─────────────────────────────────┐  │
+   │  │                   Unified Session Repository                      │  │
+   │  │   • Logical Unified Sessions   • Context Synchronization Delta    │  │
+   │  │   • Host-Tagged Event Routing  • Local Persistence (Room DB)      │  │
+   │  └──────────────────┬──────────────────────────────┬─────────────────┘  │
+   │                     │                              │                    │
+   │  ┌──────────────────▼──────────────────┐  ┌────────▼─────────────────┐  │
+   │  │      Hermes Connection Manager      │  │   Encrypted Token Vault  │  │
+   │  │   • Map<HostId, HostRuntime>        │  │   (Host-Scoped Keystore) │  │
+   │  └───────┬─────────────────────────┬───┘  └──────────────────────────┘  │
+   │          │                         │                                    │
+   │  ┌───────▼─────────────┐   ┌───────▼─────────────┐                      │
+   │  │   Host #1 Runtime   │   │   Host #2 Runtime   │                      │
+   │  │  (OkHttp WS + REST) │   │  (OkHttp WS + REST) │                      │
+   │  └───────┬─────────────┘   └───────┬─────────────┘                      │
+   └──────────┼─────────────────────────┼────────────────────────────────────┘
+              │                         │
+              ▼                         ▼
+   ┌──────────────────────┐  ┌──────────────────────┐
+   │    Hermes Host #1    │  │    Hermes Host #2    │
+   │   (Windows Office)   │  │    (Linux Server)    │
+   │   `hermes serve`     │  │   `hermes serve`     │
+   └──────────────────────┘  └──────────────────────┘
 ```
 
 ---
 
-## 🚀 Getting Started & Host Setup
+## 🚀 Key Multi-Host Features
 
-### 1. Windows Host Setup
+1. **Multi-Hermes Connection Manager**:
+   - Save and manage multiple independent Hermes installations (e.g. Workstation, Linux Server, Cloud VM).
+   - Independent WebSocket connections, concurrent state management, and isolated reconnect loops.
+   - Individual host health badges: `Online`, `Connecting`, `Offline`, `Auth Expired`.
 
-Run the Hermes server binding to all interfaces (or your LAN / Tailscale IP):
+2. **Unified Sessions & Context Synchronization**:
+   - Create one logical conversation (`UnifiedSession`) that spans multiple physical Hermes hosts.
+   - Seamlessly switch active execution hosts mid-conversation via the top-bar dropdown.
+   - **Delta Context Sync**: Injects conversation history and task context to newly attached hosts automatically without full-history re-transmission or secret leakage.
+   - **Host Attribution**: Every response bubble, tool card, and thinking trace displays its originating host badge (e.g. `[Office PC]`, `[Linux Server]`).
+   - **Non-Blocking Host Switching**: If Host #1 is executing a long tool or computation and you switch to Host #2, Host #1 completes its work in the background and commits results into the shared timeline.
+
+3. **Isolated Host Security & Approvals**:
+   - Host-scoped credentials stored securely in Android Keystore (`hostId -> tokens`).
+   - **Host-Targeted Approvals & Clarifications**: Dangerous command approvals (`approval.request`) and sudo prompts route back strictly to the exact host runtime and native session that emitted them.
+
+4. **Local Persistence (Room DB)**:
+   - Full offline caching for `UnifiedSession`, `HostSessionBinding`, and `UnifiedMessage`.
+   - Raw native session browser for inspecting individual host histories.
+
+---
+
+## 🖥️ Hermes Host Setup
+
+### Windows Host
 
 ```powershell
 hermes serve --host 0.0.0.0 --port 9119
 ```
 
-To configure GitHub authentication:
+With OAuth / GitHub Auth:
 ```powershell
 $env:HERMES_AUTH_REQUIRED="true"
 $env:HERMES_AUTH_PROVIDERS="github"
@@ -60,7 +84,7 @@ $env:HERMES_AUTH_GITHUB_CLIENT_SECRET="<your_client_secret>"
 hermes serve --host 0.0.0.0 --port 9119
 ```
 
-### 2. Linux Host Setup
+### Linux Host
 
 ```bash
 export HERMES_AUTH_REQUIRED="true"
@@ -73,50 +97,22 @@ hermes serve --host 0.0.0.0 --port 9119
 
 ---
 
-## 📱 Android Client Features
-
-1. **Host Connection Manager**:
-   - Save multiple Hermes host endpoints.
-   - Live endpoint verification (`GET /api/status`).
-   - Cleartext HTTP toggling with explicit security warning badges for local development.
-
-2. **Native PKCE Authentication**:
-   - RFC 7636 & RFC 8252 compliant PKCE loopback authentication on `127.0.0.1:<ephemeral_port>`.
-   - Single-use WebSocket tickets with 30s TTL.
-   - Credentials securely stored via Android Keystore & `EncryptedSharedPreferences`. Zero token logging.
-
-3. **Session Management**:
-   - Resume durable sessions (`DurableSessionId`) or create new sessions.
-   - Dynamic reconciliation across network disconnects.
-
-4. **Real-time Chat Experience**:
-   - Streaming token deltas (`message.delta`).
-   - Collapsible reasoning & chain-of-thought section (`thinking.delta`).
-   - Real-time tool execution tracking cards (`tool.start`, `tool.progress`, `tool.complete`).
-   - **Interactive Approvals**: Immediate in-stream approval card for dangerous commands (`Allow Once`, `Allow Always`, `Deny`).
-   - **Clarifications & Sudo**: Masked dialogs for `sudo.request`, `secret.request`, and `clarify.request`.
-   - Interrupt / Stop execution control.
-
----
-
-## 🔒 Security Best Practices for Remote Access
-
-- **Do NOT expose cleartext HTTP directly to the public internet.**
-- **Recommended**: Connect via **Tailscale**, **WireGuard**, or a TLS Reverse Proxy (Caddy / Nginx) with HTTPS & WSS.
-- The Android client strictly enforces `usesCleartextTraffic="false"` at the manifest level by default.
-
----
-
 ## 🧪 Testing & Verification
 
-Run all unit tests via Gradle:
+Run the full automated test suite:
 
 ```powershell
-.\gradlew testDebugUnitTest
+.\gradlew.bat testDebugUnitTest
 ```
 
-Build the release or debug APK:
+Run Android Lint:
 
 ```powershell
-.\gradlew assembleDebug
+.\gradlew.bat lintDebug
+```
+
+Assemble Debug APK:
+
+```powershell
+.\gradlew.bat assembleDebug
 ```

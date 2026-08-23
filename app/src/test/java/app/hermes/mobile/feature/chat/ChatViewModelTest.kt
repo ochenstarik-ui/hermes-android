@@ -1,14 +1,17 @@
 package app.hermes.mobile.feature.chat
 
-import app.hermes.mobile.core.model.DurableSessionId
-import app.hermes.mobile.core.model.HermesApproval
-import app.hermes.mobile.core.model.HermesMessage
-import app.hermes.mobile.core.model.MessageRole
-import app.hermes.mobile.core.model.RuntimeSessionId
+import app.hermes.mobile.core.model.HermesHost
+import app.hermes.mobile.core.model.HermesHostId
+import app.hermes.mobile.core.model.HostAttributedApproval
+import app.hermes.mobile.core.model.HostAttributedClarify
+import app.hermes.mobile.core.model.UnifiedSessionId
 import app.hermes.mobile.core.network.HermesRestClient
-import app.hermes.mobile.core.network.JsonRpcGatewayClient
-import app.hermes.mobile.core.repository.HermesGatewayRepository
+import app.hermes.mobile.core.repository.UnifiedSessionRepository
+import app.hermes.mobile.core.runtime.HermesConnectionManager
 import app.hermes.mobile.core.security.InMemoryTokenVault
+import app.hermes.mobile.core.storage.FakeHostDao
+import app.hermes.mobile.core.storage.FakeUnifiedSessionDao
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -25,20 +28,33 @@ import org.junit.Test
 class ChatViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
-    private lateinit var restClient: HermesRestClient
-    private lateinit var gatewayClient: JsonRpcGatewayClient
+    private lateinit var hostDao: FakeHostDao
+    private lateinit var sessionDao: FakeUnifiedSessionDao
     private lateinit var tokenVault: InMemoryTokenVault
-    private lateinit var repository: HermesGatewayRepository
+    private lateinit var connectionManager: HermesConnectionManager
+    private lateinit var repository: UnifiedSessionRepository
     private lateinit var viewModel: ChatViewModel
+
+    private val sessionId = UnifiedSessionId("test-session-123")
+    private val hostId = HermesHostId("host-main")
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
-        restClient = HermesRestClient()
-        gatewayClient = JsonRpcGatewayClient()
+        hostDao = FakeHostDao()
+        sessionDao = FakeUnifiedSessionDao()
         tokenVault = InMemoryTokenVault()
-        repository = HermesGatewayRepository(restClient, gatewayClient, tokenVault)
-        viewModel = ChatViewModel(repository)
+        connectionManager = HermesConnectionManager(hostDao, tokenVault, scope = CoroutineScope(testDispatcher))
+        repository = UnifiedSessionRepository(connectionManager, sessionDao, scope = CoroutineScope(testDispatcher))
+
+        val host = HermesHost(id = hostId, displayName = "Main Host", baseUrl = "http://localhost:9119")
+        runTest(testDispatcher) {
+            connectionManager.addHost(host)
+            repository.createUnifiedSession("Test Chat", hostId)
+            testScheduler.advanceUntilIdle()
+        }
+
+        viewModel = ChatViewModel(repository, connectionManager, sessionId)
     }
 
     @After
@@ -61,32 +77,28 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun testMessageHandlingStateFlow() {
-        val initialMessages = viewModel.messages.value
-        assertEquals(0, initialMessages.size)
+    fun testHostDropdownToggle() {
+        assertEquals(false, viewModel.uiState.value.activeHostDropdownExpanded)
+        viewModel.setHostDropdownExpanded(true)
+        assertEquals(true, viewModel.uiState.value.activeHostDropdownExpanded)
     }
 
     @Test
-    fun testClarifyRequestHandling() = runTest(testDispatcher) {
-        val clarifyReq = app.hermes.mobile.core.model.HermesClarifyRequest(
-            requestId = "req_101",
-            questionId = "q_param",
-            question = "Which database?",
-            promptType = app.hermes.mobile.core.model.ClarifyType.CLARIFY
-        )
-        viewModel.respondClarify(clarifyReq, "PostgreSQL")
-        // No crash, handled gracefully when disconnected
-    }
+    fun testSwitchActiveHost() = runTest(testDispatcher) {
+        val host2Id = HermesHostId("host-secondary")
+        val host2 = HermesHost(id = host2Id, displayName = "Secondary Host", baseUrl = "http://second:9119")
+        connectionManager.addHost(host2)
+        testScheduler.advanceUntilIdle()
 
-    @Test
-    fun testApprovalHandling() = runTest(testDispatcher) {
-        viewModel.respondApproval("req_app_1", "once", false)
-        // Handled gracefully
+        viewModel.switchActiveHost(host2Id)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(false, viewModel.uiState.value.activeHostDropdownExpanded)
     }
 
     @Test
     fun testInterruptHandling() = runTest(testDispatcher) {
         viewModel.interruptSession()
-        // Handled gracefully
+        // No crash, handled gracefully
     }
 }

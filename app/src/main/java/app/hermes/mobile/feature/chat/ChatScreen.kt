@@ -26,15 +26,19 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,25 +63,29 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.hermes.mobile.core.model.HermesMessage
+import app.hermes.mobile.core.model.HermesHost
+import app.hermes.mobile.core.model.HermesHostId
+import app.hermes.mobile.core.model.HostStatus
 import app.hermes.mobile.core.model.MessageRole
 import app.hermes.mobile.core.model.ToolActivity
+import app.hermes.mobile.core.model.UnifiedMessage
+import app.hermes.mobile.core.model.UnifiedMessageSource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     viewModel: ChatViewModel,
-    durableSessionId: String,
     onNavigateBack: () -> Unit
 ) {
     val messages by viewModel.messages.collectAsState()
     val approvals by viewModel.activeApprovals.collectAsState()
     val activeClarify by viewModel.activeClarify.collectAsState()
-    val sessionInfo by viewModel.sessionInfo.collectAsState()
     val isExecuting by viewModel.isExecuting.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
-    val activeConn by viewModel.activeConnection.collectAsState()
+    val hosts by viewModel.hosts.collectAsState()
+    val currentSession by viewModel.currentSession.collectAsState()
 
+    val activeHost = hosts.find { it.id == currentSession?.activeHostId }
     val listState = rememberLazyListState()
 
     LaunchedEffect(messages.size, messages.lastOrNull()?.content?.length, approvals.size) {
@@ -93,17 +101,72 @@ fun ChatScreen(
                 title = {
                     Column {
                         Text(
-                            text = sessionInfo?.model ?: activeConn?.name ?: "Hermes Chat",
+                            text = currentSession?.title?.ifEmpty { "Unified Chat" } ?: "Unified Chat",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Text(
-                            text = "Session: ${durableSessionId.take(8)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        // Active host selector chip
+                        Box {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .clickable { viewModel.setHostDropdownExpanded(true) }
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                val isOnline = activeHost?.lastKnownStatus == HostStatus.ONLINE
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isOnline) Color(0xFF10B981) else Color(0xFF94A3B8))
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = activeHost?.displayName ?: "Select Host",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Icon(
+                                    Icons.Default.ExpandMore,
+                                    contentDescription = "Switch Host",
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = uiState.activeHostDropdownExpanded,
+                                onDismissRequest = { viewModel.setHostDropdownExpanded(false) }
+                            ) {
+                                hosts.forEach { host ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                val online = host.lastKnownStatus == HostStatus.ONLINE
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(8.dp)
+                                                        .clip(CircleShape)
+                                                        .background(if (online) Color(0xFF10B981) else Color(0xFF94A3B8))
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = host.displayName,
+                                                    fontWeight = if (host.id == currentSession?.activeHostId) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            }
+                                        },
+                                        onClick = { viewModel.switchActiveHost(host.id) }
+                                    )
+                                }
+                            }
+                        }
                     }
                 },
                 navigationIcon = {
@@ -148,14 +211,19 @@ fun ChatScreen(
             contentPadding = PaddingValues(vertical = 12.dp)
         ) {
             items(messages, key = { it.id }) { message ->
-                MessageItem(message = message)
+                if (message.source == UnifiedMessageSource.TRANSFER) {
+                    TransferSeparator(message = message)
+                } else {
+                    val host = hosts.find { it.id == message.hostId }
+                    MessageItem(message = message, hostDisplayName = host?.displayName)
+                }
             }
 
-            items(approvals, key = { it.requestId }) { approval ->
+            items(approvals, key = { it.hostId.value + it.approval.requestId }) { approval ->
                 ApprovalCard(
-                    approval = approval,
+                    attributedApproval = approval,
                     onRespond = { choice, all ->
-                        viewModel.respondApproval(approval.requestId, choice, all)
+                        viewModel.respondApproval(approval.hostId, approval.approval.requestId, choice, all)
                     }
                 )
             }
@@ -163,13 +231,16 @@ fun ChatScreen(
             if (isExecuting && messages.lastOrNull()?.isStreaming != true && approvals.isEmpty()) {
                 item {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(8.dp))
+                        val hostLabel = activeHost?.displayName ?: "Hermes"
                         Text(
-                            "Hermes is thinking…",
+                            "$hostLabel is thinking…",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -180,8 +251,8 @@ fun ChatScreen(
 
         if (activeClarify != null) {
             ClarifyDialog(
-                request = activeClarify!!,
-                onDismiss = { viewModel.dismissClarify() },
+                attributedClarify = activeClarify!!,
+                onDismiss = { /* dismiss */ },
                 onSubmit = { value ->
                     viewModel.respondClarify(activeClarify!!, value)
                 }
@@ -191,13 +262,69 @@ fun ChatScreen(
 }
 
 @Composable
-fun MessageItem(message: HermesMessage) {
+fun TransferSeparator(message: UnifiedMessage) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF38BDF8).copy(alpha = 0.12f))
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Sync,
+                    contentDescription = null,
+                    tint = Color(0xFF0284C7),
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = message.content,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF0284C7)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun MessageItem(message: UnifiedMessage, hostDisplayName: String?) {
     val isUser = message.role == MessageRole.USER
 
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
+        // Host attribution badge for assistant responses
+        if (!isUser && hostDisplayName != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 4.dp, start = 4.dp)
+            ) {
+                Icon(
+                    Icons.Default.Dns,
+                    contentDescription = null,
+                    modifier = Modifier.size(12.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = hostDisplayName,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
         // Thinking Collapsible
         if (!message.thinking.isNullOrBlank()) {
             ThinkingSection(thinking = message.thinking)
