@@ -3,6 +3,7 @@ package app.hermes.mobile.core.repository
 import app.hermes.mobile.core.model.*
 import app.hermes.mobile.core.network.ConnectionState
 import app.hermes.mobile.core.runtime.HermesConnectionManager
+import app.hermes.mobile.core.runtime.HermesHostRuntime
 import app.hermes.mobile.core.storage.*
 import app.hermes.mobile.core.sync.UnifiedContextBuilder
 import kotlinx.coroutines.CoroutineScope
@@ -48,9 +49,23 @@ class UnifiedSessionRepository(
 
     // In-memory active session messages cache for reactive streaming updates
     private val sessionMessagesState = ConcurrentHashMap<UnifiedSessionId, MutableStateFlow<List<UnifiedMessage>>>()
+
+    // Independent per-(session, host) execution state
+    private val hostExecutingState = ConcurrentHashMap<Pair<UnifiedSessionId, HermesHostId>, MutableStateFlow<Boolean>>()
     private val sessionExecutingState = ConcurrentHashMap<UnifiedSessionId, MutableStateFlow<Boolean>>()
 
     init {
+        scope.launch {
+            sessions.collect { list ->
+                for (s in list) {
+                    for ((hId, b) in s.bindings) {
+                        if (b.runtimeSessionId.value.isNotEmpty()) {
+                            runtimeToSessionMap[b.runtimeSessionId.value] = Pair(s.id, hId)
+                        }
+                    }
+                }
+            }
+        }
         scope.launch {
             connectionManager.allEvents.collect { hostEvent ->
                 handleHostGatewayEvent(hostEvent)
@@ -71,6 +86,12 @@ class UnifiedSessionRepository(
         }.asStateFlow()
     }
 
+    fun getHostExecuting(sessionId: UnifiedSessionId, hostId: HermesHostId): StateFlow<Boolean> {
+        return hostExecutingState.computeIfAbsent(Pair(sessionId, hostId)) {
+            MutableStateFlow(false)
+        }.asStateFlow()
+    }
+
     fun getSessionExecuting(sessionId: UnifiedSessionId): StateFlow<Boolean> {
         return sessionExecutingState.computeIfAbsent(sessionId) {
             MutableStateFlow(false)
@@ -83,7 +104,7 @@ class UnifiedSessionRepository(
     ): UnifiedSession {
         val hostId = initialHostId ?: connectionManager.activeHostId.value
             ?: connectionManager.hosts.value.firstOrNull()?.id
-            ?: HermesHostId("default")
+            ?: throw IllegalStateException("No Hermes hosts configured. Please add a host before creating a session.")
 
         val sessionId = UnifiedSessionId(UUID.randomUUID().toString())
         val sessionEntity = UnifiedSessionEntity(
@@ -120,10 +141,69 @@ class UnifiedSessionRepository(
         sessionDao.deleteSession(sessionId.value)
         sessionMessagesState.remove(sessionId)
         sessionExecutingState.remove(sessionId)
+        hostExecutingState.entries.removeIf { it.key.first == sessionId }
+        runtimeToSessionMap.entries.removeIf { it.value.first == sessionId }
+    }
+
+    fun registerRuntimeBinding(sessionId: UnifiedSessionId, hostId: HermesHostId, runtimeSessionId: RuntimeSessionId) {
+        if (runtimeSessionId.value.isNotEmpty()) {
+            runtimeToSessionMap[runtimeSessionId.value] = Pair(sessionId, hostId)
+        }
     }
 
     suspend fun switchSessionActiveHost(sessionId: UnifiedSessionId, targetHostId: HermesHostId) {
         sessionDao.updateActiveHost(sessionId.value, targetHostId.value, System.currentTimeMillis())
+    }
+
+    suspend fun ensureAttachedRuntimeSession(
+        sessionId: UnifiedSessionId,
+        targetHostId: HermesHostId,
+        runtime: HermesHostRuntime
+    ): HostSessionBinding {
+        val details = sessionDao.getSessionWithDetails(sessionId.value)
+        var binding = details?.bindings?.find { it.hostId == targetHostId.value }?.toDomain()
+
+        if (binding == null || binding.durableSessionId.value.isEmpty()) {
+            val createRes = runtime.gatewayClient.createSession(source = "android")
+            binding = HostSessionBinding(
+                hostId = targetHostId,
+                durableSessionId = createRes.durableId,
+                runtimeSessionId = createRes.runtimeId,
+                lastAttachedAt = System.currentTimeMillis(),
+                state = BindingState.READY,
+                syncedThroughMessageId = null,
+                syncedAt = null
+            )
+            sessionDao.insertOrUpdateBinding(binding.toEntity(sessionId.value))
+            runtimeToSessionMap[createRes.runtimeId.value] = Pair(sessionId, targetHostId)
+            return binding
+        }
+
+        // We have an existing durableSessionId.
+        // Check if current runtimeSessionId is already registered and valid, or if we need to resume
+        val currentRuntimeId = binding.runtimeSessionId.value
+        val isRegistered = currentRuntimeId.isNotEmpty() && runtimeToSessionMap.containsKey(currentRuntimeId)
+
+        if (!isRegistered || binding.state == BindingState.NOT_CREATED || binding.state == BindingState.OFFLINE || binding.state == BindingState.ERROR) {
+            val resumeRes = try {
+                runtime.gatewayClient.resumeSession(binding.durableSessionId, source = "android")
+            } catch (_: Exception) {
+                val createRes = runtime.gatewayClient.createSession(source = "android")
+                ResumeSessionResult(createRes.durableId, createRes.runtimeId)
+            }
+            binding = binding.copy(
+                durableSessionId = resumeRes.durableId,
+                runtimeSessionId = resumeRes.runtimeId,
+                lastAttachedAt = System.currentTimeMillis(),
+                state = BindingState.READY
+            )
+            sessionDao.insertOrUpdateBinding(binding.toEntity(sessionId.value))
+            runtimeToSessionMap[resumeRes.runtimeId.value] = Pair(sessionId, targetHostId)
+        } else {
+            runtimeToSessionMap[currentRuntimeId] = Pair(sessionId, targetHostId)
+        }
+
+        return binding
     }
 
     suspend fun sendPrompt(sessionId: UnifiedSessionId, text: String): String {
@@ -147,23 +227,8 @@ class UnifiedSessionRepository(
             runtime.gatewayClient.awaitGatewayReady(10_000)
         }
 
-        // Get or create native session binding for this host
-        var binding = currentSession.bindings[targetHostId]
-        if (binding == null || binding.runtimeSessionId.value.isEmpty()) {
-            val createRes = runtime.gatewayClient.createSession(source = "android")
-            binding = HostSessionBinding(
-                hostId = targetHostId,
-                durableSessionId = createRes.durableId,
-                runtimeSessionId = createRes.runtimeId,
-                lastAttachedAt = System.currentTimeMillis(),
-                state = BindingState.READY,
-                syncedThroughMessageId = null,
-                syncedAt = null
-            )
-            sessionDao.insertOrUpdateBinding(binding.toEntity(sessionId.value))
-        }
-
-        runtimeToSessionMap[binding.runtimeSessionId.value] = Pair(sessionId, targetHostId)
+        // Get or attach native session binding for this host
+        val binding = ensureAttachedRuntimeSession(sessionId, targetHostId, runtime)
 
         // Context Synchronization
         val hostsMap = connectionManager.hosts.value.associateBy { it.id }
@@ -190,15 +255,6 @@ class UnifiedSessionRepository(
             text
         }
 
-        // Update binding sync status
-        sessionDao.updateBindingSync(
-            sessionId = sessionId.value,
-            hostId = targetHostId.value,
-            syncedThroughMessageId = syncResult.latestSyncedMessageId,
-            syncedAt = System.currentTimeMillis(),
-            state = BindingState.RUNNING.name
-        )
-
         // Insert user message to timeline
         val userMessage = UnifiedMessage(
             id = UUID.randomUUID().toString(),
@@ -210,49 +266,70 @@ class UnifiedSessionRepository(
         )
         insertMessageToSession(sessionId, userMessage)
 
-        setExecuting(sessionId, true)
+        setHostExecuting(sessionId, targetHostId, true)
+        sessionDao.updateBindingState(sessionId.value, targetHostId.value, BindingState.RUNNING.name)
 
         return try {
             val result = runtime.gatewayClient.submitPrompt(binding.runtimeSessionId, promptToSend)
+
+            // ONLY update binding sync status AFTER successful acceptance of prompt.submit!
+            sessionDao.updateBindingSync(
+                sessionId = sessionId.value,
+                hostId = targetHostId.value,
+                syncedThroughMessageId = syncResult.latestSyncedMessageId,
+                syncedAt = System.currentTimeMillis(),
+                state = BindingState.RUNNING.name
+            )
+
             result.turnId ?: userMessage.id
         } catch (e: Exception) {
-            setExecuting(sessionId, false)
+            setHostExecuting(sessionId, targetHostId, false)
             sessionDao.updateBindingState(sessionId.value, targetHostId.value, BindingState.ERROR.name)
             throw e
         }
     }
 
-    suspend fun interruptSession(sessionId: UnifiedSessionId) {
-        val details = sessionDao.getSessionWithDetails(sessionId.value) ?: return
-        for (binding in details.bindings) {
-            val runtime = connectionManager.getRuntime(HermesHostId(binding.hostId))
-            if (runtime != null && binding.runtimeSessionId.isNotEmpty()) {
-                try {
-                    runtime.gatewayClient.interruptSession(RuntimeSessionId(binding.runtimeSessionId))
-                } catch (_: Exception) {
-                }
+    suspend fun interruptHost(sessionId: UnifiedSessionId, hostId: HermesHostId): Boolean {
+        val runtime = connectionManager.getRuntime(hostId) ?: return false
+        val details = sessionDao.getSessionWithDetails(sessionId.value) ?: return false
+        val binding = details.bindings.find { it.hostId == hostId.value } ?: return false
+
+        val success = try {
+            if (binding.runtimeSessionId.isNotEmpty()) {
+                runtime.gatewayClient.interruptSession(RuntimeSessionId(binding.runtimeSessionId))
+            } else {
+                false
             }
+        } catch (_: Exception) {
+            false
         }
-        setExecuting(sessionId, false)
+        setHostExecuting(sessionId, hostId, false)
+        sessionDao.updateBindingState(sessionId.value, hostId.value, BindingState.READY.name)
+        return success
+    }
+
+    suspend fun interruptSession(sessionId: UnifiedSessionId, targetHostId: HermesHostId? = null) {
+        val details = sessionDao.getSessionWithDetails(sessionId.value) ?: return
+        val hostToInterrupt = targetHostId ?: HermesHostId(details.session.activeHostId)
+        interruptHost(sessionId, hostToInterrupt)
     }
 
     suspend fun respondApproval(
         hostId: HermesHostId,
+        runtimeSessionId: RuntimeSessionId,
         requestId: String,
         choice: String,
         all: Boolean = false
     ): Boolean {
         val runtime = connectionManager.getRuntime(hostId) ?: return false
-        val approval = _activeApprovals.value.find { it.hostId == hostId && it.approval.requestId == requestId }
-        val sessionKey = "" // Gateway client handles request_id
         val success = try {
-            runtime.gatewayClient.respondApproval(sessionKey, requestId, choice, all)
+            runtime.gatewayClient.respondApproval(runtimeSessionId.value, requestId, choice, all)
         } catch (_: Exception) {
-            true
+            false
         }
         if (success) {
             _activeApprovals.value = _activeApprovals.value.filterNot {
-                it.hostId == hostId && it.approval.requestId == requestId
+                it.hostId == hostId && it.runtimeSessionId == runtimeSessionId && it.approval.requestId == requestId
             }
         }
         return success
@@ -265,7 +342,11 @@ class UnifiedSessionRepository(
         questionId: String? = null
     ): Boolean {
         val runtime = connectionManager.getRuntime(hostId) ?: return false
-        val success = runtime.gatewayClient.respondClarify(requestId, answer, questionId)
+        val success = try {
+            runtime.gatewayClient.respondClarify(requestId, answer, questionId)
+        } catch (_: Exception) {
+            false
+        }
         if (success) {
             if (_activeClarify.value?.hostId == hostId && _activeClarify.value?.request?.requestId == requestId) {
                 _activeClarify.value = null
@@ -280,7 +361,11 @@ class UnifiedSessionRepository(
         password: String
     ): Boolean {
         val runtime = connectionManager.getRuntime(hostId) ?: return false
-        val success = runtime.gatewayClient.respondSudo(requestId, password)
+        val success = try {
+            runtime.gatewayClient.respondSudo(requestId, password)
+        } catch (_: Exception) {
+            false
+        }
         if (success) {
             if (_activeClarify.value?.hostId == hostId && _activeClarify.value?.request?.requestId == requestId) {
                 _activeClarify.value = null
@@ -295,7 +380,11 @@ class UnifiedSessionRepository(
         secret: String
     ): Boolean {
         val runtime = connectionManager.getRuntime(hostId) ?: return false
-        val success = runtime.gatewayClient.respondSecret(requestId, secret)
+        val success = try {
+            runtime.gatewayClient.respondSecret(requestId, secret)
+        } catch (_: Exception) {
+            false
+        }
         if (success) {
             if (_activeClarify.value?.hostId == hostId && _activeClarify.value?.request?.requestId == requestId) {
                 _activeClarify.value = null
@@ -343,32 +432,61 @@ class UnifiedSessionRepository(
         }
     }
 
-    private fun setExecuting(sessionId: UnifiedSessionId, executing: Boolean) {
-        val flow = sessionExecutingState.computeIfAbsent(sessionId) {
+    private fun setHostExecuting(sessionId: UnifiedSessionId, hostId: HermesHostId, executing: Boolean) {
+        hostExecutingState.computeIfAbsent(Pair(sessionId, hostId)) {
             MutableStateFlow(false)
-        }
-        flow.value = executing
+        }.value = executing
+
+        // Derive aggregate executing state for this session
+        val isAnyHostExecuting = hostExecutingState.entries
+            .filter { it.key.first == sessionId }
+            .any { it.value.value }
+        sessionExecutingState.computeIfAbsent(sessionId) {
+            MutableStateFlow(false)
+        }.value = isAnyHostExecuting
     }
 
-    private fun findSessionForHost(hostId: HermesHostId): UnifiedSessionId? {
-        for ((sessionId, flow) in sessionExecutingState) {
-            if (flow.value) {
-                return sessionId
+    private fun findSessionForEvent(
+        hostId: HermesHostId,
+        sessionIdFromEvent: String?,
+        messageId: String? = null,
+        toolId: String? = null
+    ): UnifiedSessionId? {
+        // 1. Exact match via runtimeSessionId in runtimeToSessionMap
+        if (!sessionIdFromEvent.isNullOrEmpty()) {
+            val mapped = runtimeToSessionMap[sessionIdFromEvent]
+            if (mapped != null && mapped.second == hostId) {
+                return mapped.first
+            }
+            for (session in sessions.value) {
+                val b = session.bindings[hostId]
+                if (b != null && b.runtimeSessionId.value == sessionIdFromEvent) {
+                    runtimeToSessionMap[sessionIdFromEvent] = Pair(session.id, hostId)
+                    return session.id
+                }
             }
         }
-        // Fall back to active session, open session cache, or first known session
-        return sessions.value.find { it.activeHostId == hostId }?.id
-            ?: sessionMessagesState.keys.firstOrNull()
-            ?: sessions.value.firstOrNull()?.id
-    }
 
-    private fun findSessionForMessage(messageId: String, hostId: HermesHostId): UnifiedSessionId? {
-        for ((sessionId, flow) in sessionMessagesState) {
-            if (flow.value.any { it.id == messageId }) {
-                return sessionId
+        // 2. Exact match via messageId in active session messages
+        if (!messageId.isNullOrEmpty()) {
+            for ((sessionId, flow) in sessionMessagesState) {
+                if (flow.value.any { it.id == messageId && (it.hostId == hostId || it.hostId == null) }) {
+                    return sessionId
+                }
             }
         }
-        return findSessionForHost(hostId)
+
+        // 3. Exact match via toolId in active session messages
+        if (!toolId.isNullOrEmpty()) {
+            for ((sessionId, flow) in sessionMessagesState) {
+                if (flow.value.any { it.tools.any { t -> t.id == toolId } }) {
+                    return sessionId
+                }
+            }
+        }
+
+        // Strict: NO fallback to "any executing session" or "first session in list"
+        return null
     }
 
     private fun handleHostGatewayEvent(hostEvent: HostGatewayEvent) {
@@ -378,8 +496,8 @@ class UnifiedSessionRepository(
 
         when (event) {
             is GatewayEvent.MessageStartEvent -> {
-                val sessionId = findSessionForMessage(event.messageId, hostId) ?: return
-                setExecuting(sessionId, true)
+                val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
+                setHostExecuting(sessionId, hostId, true)
                 val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
                 val existing = flow.value.find { it.id == event.messageId }
                 if (existing == null) {
@@ -397,8 +515,8 @@ class UnifiedSessionRepository(
             }
 
             is GatewayEvent.MessageDeltaEvent -> {
-                val sessionId = findSessionForMessage(event.messageId, hostId) ?: return
-                setExecuting(sessionId, true)
+                val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
+                setHostExecuting(sessionId, hostId, true)
                 val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
                 val idx = flow.value.indexOfFirst { it.id == event.messageId }
                 if (idx >= 0) {
@@ -419,15 +537,18 @@ class UnifiedSessionRepository(
             }
 
             is GatewayEvent.MessageInterimEvent -> {
-                val sessionId = findSessionForMessage(event.messageId, hostId) ?: return
+                val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
                 updateMessageInSession(sessionId, event.messageId) {
                     it.copy(content = event.content, isStreaming = true)
                 }
             }
 
             is GatewayEvent.MessageCompleteEvent -> {
-                val sessionId = findSessionForMessage(event.messageId, hostId) ?: return
-                setExecuting(sessionId, false)
+                val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
+                setHostExecuting(sessionId, hostId, false)
+                scope.launch {
+                    sessionDao.updateBindingState(sessionId.value, hostId.value, BindingState.READY.name)
+                }
                 val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
                 val idx = flow.value.indexOfFirst { it.id == event.messageId }
                 if (idx >= 0) {
@@ -451,56 +572,56 @@ class UnifiedSessionRepository(
             }
 
             is GatewayEvent.ThinkingDeltaEvent -> {
-                val sessionId = findSessionForHost(hostId) ?: return
+                val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
                 val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
-                val lastAssistant = flow.value.lastOrNull { it.role == MessageRole.ASSISTANT && it.hostId == hostId }
-                if (lastAssistant != null) {
-                    updateMessageInSession(sessionId, lastAssistant.id) {
+                val targetAssistant = flow.value.lastOrNull { (it.id == event.messageId || it.role == MessageRole.ASSISTANT) && it.hostId == hostId }
+                if (targetAssistant != null) {
+                    updateMessageInSession(sessionId, targetAssistant.id) {
                         it.copy(thinking = (it.thinking ?: "") + event.delta)
                     }
                 }
             }
 
             is GatewayEvent.ReasoningDeltaEvent -> {
-                val sessionId = findSessionForHost(hostId) ?: return
+                val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
                 val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
-                val lastAssistant = flow.value.lastOrNull { it.role == MessageRole.ASSISTANT && it.hostId == hostId }
-                if (lastAssistant != null) {
-                    updateMessageInSession(sessionId, lastAssistant.id) {
+                val targetAssistant = flow.value.lastOrNull { (it.id == event.messageId || it.role == MessageRole.ASSISTANT) && it.hostId == hostId }
+                if (targetAssistant != null) {
+                    updateMessageInSession(sessionId, targetAssistant.id) {
                         it.copy(thinking = (it.thinking ?: "") + event.delta)
                     }
                 }
             }
 
             is GatewayEvent.ReasoningAvailableEvent -> {
-                val sessionId = findSessionForHost(hostId) ?: return
+                val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
                 val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
-                val lastAssistant = flow.value.lastOrNull { it.role == MessageRole.ASSISTANT && it.hostId == hostId }
-                if (lastAssistant != null) {
-                    updateMessageInSession(sessionId, lastAssistant.id) {
+                val targetAssistant = flow.value.lastOrNull { (it.id == event.messageId || it.role == MessageRole.ASSISTANT) && it.hostId == hostId }
+                if (targetAssistant != null) {
+                    updateMessageInSession(sessionId, targetAssistant.id) {
                         it.copy(thinking = event.reasoning)
                     }
                 }
             }
 
             is GatewayEvent.ToolStartEvent -> {
-                val sessionId = findSessionForHost(hostId) ?: return
+                val sessionId = findSessionForEvent(hostId, event.sessionId) ?: return
                 val tool = ToolActivity(id = event.toolId, name = event.name, status = "running")
                 attachToolToSessionMessage(sessionId, hostId, tool)
             }
 
             is GatewayEvent.ToolProgressEvent -> {
-                val sessionId = findSessionForHost(hostId) ?: return
+                val sessionId = findSessionForEvent(hostId, event.sessionId, toolId = event.toolId) ?: return
                 updateToolInSessionMessage(sessionId, event.toolId) { it.copy(progress = event.progress) }
             }
 
             is GatewayEvent.ToolGeneratingEvent -> {
-                val sessionId = findSessionForHost(hostId) ?: return
+                val sessionId = findSessionForEvent(hostId, event.sessionId, toolId = event.toolId) ?: return
                 updateToolInSessionMessage(sessionId, event.toolId) { it.copy(status = "generating") }
             }
 
             is GatewayEvent.ToolCompleteEvent -> {
-                val sessionId = findSessionForHost(hostId) ?: return
+                val sessionId = findSessionForEvent(hostId, event.sessionId, toolId = event.toolId) ?: return
                 updateToolInSessionMessage(sessionId, event.toolId) {
                     it.copy(
                         status = if (event.isError) "failed" else "completed",
@@ -511,6 +632,8 @@ class UnifiedSessionRepository(
             }
 
             is GatewayEvent.ApprovalRequestEvent -> {
+                val runtimeSessionIdVal = event.sessionKey ?: event.sessionId ?: ""
+                val runtimeSessionId = RuntimeSessionId(runtimeSessionIdVal)
                 val approval = HermesApproval(
                     requestId = event.requestId,
                     command = event.command,
@@ -520,44 +643,66 @@ class UnifiedSessionRepository(
                 val attributed = HostAttributedApproval(
                     hostId = hostId,
                     hostDisplayName = hostName,
+                    runtimeSessionId = runtimeSessionId,
                     approval = approval
                 )
                 _activeApprovals.value = _activeApprovals.value.filterNot {
-                    it.hostId == hostId && it.approval.requestId == event.requestId
+                    it.hostId == hostId && it.runtimeSessionId == runtimeSessionId && it.approval.requestId == event.requestId
                 } + attributed
             }
 
             is GatewayEvent.ClarifyRequestEvent -> {
+                val runtimeSessionIdVal = event.sessionId
                 val req = HermesClarifyRequest(
                     requestId = event.requestId,
                     questionId = event.questionId,
                     question = event.question,
                     promptType = ClarifyType.CLARIFY
                 )
-                _activeClarify.value = HostAttributedClarify(hostId, hostName, req)
+                _activeClarify.value = HostAttributedClarify(
+                    hostId = hostId,
+                    hostDisplayName = hostName,
+                    runtimeSessionId = runtimeSessionIdVal?.let { RuntimeSessionId(it) },
+                    request = req
+                )
             }
 
             is GatewayEvent.SudoRequestEvent -> {
+                val runtimeSessionIdVal = event.sessionId
                 val req = HermesClarifyRequest(
                     requestId = event.requestId,
                     question = event.question,
                     promptType = ClarifyType.SUDO
                 )
-                _activeClarify.value = HostAttributedClarify(hostId, hostName, req)
+                _activeClarify.value = HostAttributedClarify(
+                    hostId = hostId,
+                    hostDisplayName = hostName,
+                    runtimeSessionId = runtimeSessionIdVal?.let { RuntimeSessionId(it) },
+                    request = req
+                )
             }
 
             is GatewayEvent.SecretRequestEvent -> {
+                val runtimeSessionIdVal = event.sessionId
                 val req = HermesClarifyRequest(
                     requestId = event.requestId,
                     question = event.question,
                     promptType = ClarifyType.SECRET
                 )
-                _activeClarify.value = HostAttributedClarify(hostId, hostName, req)
+                _activeClarify.value = HostAttributedClarify(
+                    hostId = hostId,
+                    hostDisplayName = hostName,
+                    runtimeSessionId = runtimeSessionIdVal?.let { RuntimeSessionId(it) },
+                    request = req
+                )
             }
 
             is GatewayEvent.ErrorEvent -> {
-                val sessionId = findSessionForHost(hostId) ?: return
-                setExecuting(sessionId, false)
+                val sessionId = findSessionForEvent(hostId, event.sessionId) ?: return
+                setHostExecuting(sessionId, hostId, false)
+                scope.launch {
+                    sessionDao.updateBindingState(sessionId.value, hostId.value, BindingState.ERROR.name)
+                }
             }
 
             else -> {}
@@ -586,20 +731,14 @@ class UnifiedSessionRepository(
     }
 
     private fun updateToolInSessionMessage(
-        sessionId: UnifiedSessionId?,
+        sessionId: UnifiedSessionId,
         toolId: String,
         transform: (ToolActivity) -> ToolActivity
     ) {
-        val targetSessionId = sessionId?.takeIf { sId ->
-            sessionMessagesState[sId]?.value?.any { msg -> msg.tools.any { it.id == toolId } } == true
-        } ?: sessionMessagesState.entries.firstOrNull { (_, flow) ->
-            flow.value.any { msg -> msg.tools.any { it.id == toolId } }
-        }?.key ?: sessionId ?: return
-
-        val flow = sessionMessagesState.computeIfAbsent(targetSessionId) { MutableStateFlow(emptyList()) }
+        val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
         val targetMsg = flow.value.lastOrNull { msg -> msg.tools.any { it.id == toolId } }
         if (targetMsg != null) {
-            updateMessageInSession(targetSessionId, targetMsg.id) { msg ->
+            updateMessageInSession(sessionId, targetMsg.id) { msg ->
                 val updatedTools = msg.tools.map { if (it.id == toolId) transform(it) else it }
                 msg.copy(tools = updatedTools)
             }

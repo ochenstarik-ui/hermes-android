@@ -64,7 +64,7 @@ object UnifiedContextBuilder {
         val sb = StringBuilder()
         sb.appendLine("[Unified Hermes Session Context Transfer]")
         sb.appendLine("You are continuing a unified conversation that previously ran across Hermes host instances.")
-        sb.appendLine("Target Host: ${targetHost.displayName} (${targetHost.baseUrl})")
+        sb.appendLine("Target Host: ${targetHost.displayName}")
         sb.appendLine("Session Title: ${session.title}")
         sb.appendLine("--- Prior Conversation Turns ---")
 

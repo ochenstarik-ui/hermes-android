@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -97,99 +98,126 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = currentSession?.title?.ifEmpty { "Unified Chat" } ?: "Unified Chat",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        // Active host selector chip
-                        Box {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .clickable { viewModel.setHostDropdownExpanded(true) }
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                val isOnline = activeHost?.lastKnownStatus == HostStatus.ONLINE
-                                Box(
+            Column {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                text = currentSession?.title?.ifEmpty { "Unified Chat" } ?: "Unified Chat",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            // Active host selector chip
+                            Box {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isOnline) Color(0xFF10B981) else Color(0xFF94A3B8))
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = activeHost?.displayName ?: "Select Host",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Icon(
-                                    Icons.Default.ExpandMore,
-                                    contentDescription = "Switch Host",
-                                    modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            DropdownMenu(
-                                expanded = uiState.activeHostDropdownExpanded,
-                                onDismissRequest = { viewModel.setHostDropdownExpanded(false) }
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .clickable { viewModel.setHostDropdownExpanded(true) }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                hosts.forEach { host ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                val online = host.lastKnownStatus == HostStatus.ONLINE
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(8.dp)
-                                                        .clip(CircleShape)
-                                                        .background(if (online) Color(0xFF10B981) else Color(0xFF94A3B8))
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    text = host.displayName,
-                                                    fontWeight = if (host.id == currentSession?.activeHostId) FontWeight.Bold else FontWeight.Normal
-                                                )
-                                            }
-                                        },
-                                        onClick = { viewModel.switchActiveHost(host.id) }
+                                    val isOnline = activeHost?.lastKnownStatus == HostStatus.ONLINE
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isOnline) Color(0xFF10B981) else Color(0xFF94A3B8))
                                     )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = activeHost?.displayName ?: "Select Host",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Icon(
+                                        Icons.Default.ExpandMore,
+                                        contentDescription = "Switch Host",
+                                        modifier = Modifier.size(14.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = uiState.activeHostDropdownExpanded,
+                                    onDismissRequest = { viewModel.setHostDropdownExpanded(false) }
+                                ) {
+                                    hosts.forEach { host ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    val online = host.lastKnownStatus == HostStatus.ONLINE
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(8.dp)
+                                                            .clip(CircleShape)
+                                                            .background(if (online) Color(0xFF10B981) else Color(0xFF94A3B8))
+                                                    )
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = host.displayName,
+                                                        fontWeight = if (host.id == currentSession?.activeHostId) FontWeight.Bold else FontWeight.Normal
+                                                    )
+                                                }
+                                            },
+                                            onClick = { viewModel.switchActiveHost(host.id) }
+                                        )
+                                    }
                                 }
                             }
                         }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        if (isExecuting) {
+                            Button(
+                                onClick = { viewModel.interruptSession() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(end = 8.dp)
+                            ) {
+                                Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Stop", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    if (isExecuting) {
-                        Button(
-                            onClick = { viewModel.interruptSession() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Stop", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                )
+
+                // Multi-host Status Strip showing simultaneous statuses (e.g. PC1 Running, Linux Active, PC3 Offline)
+                if (hosts.isNotEmpty()) {
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        items(hosts, key = { it.id.value }) { host ->
+                            val isRunning by viewModel.getHostExecuting(host.id).collectAsState()
+                            val isActive = host.id == currentSession?.activeHostId
+
+                            HostStatusChip(
+                                host = host,
+                                isActive = isActive,
+                                isRunning = isRunning,
+                                onClick = { viewModel.switchActiveHost(host.id) },
+                                onStop = { viewModel.interruptHost(host.id) }
+                            )
                         }
                     }
                 }
-            )
+            }
         },
         bottomBar = {
             ChatInputBar(
@@ -219,11 +247,11 @@ fun ChatScreen(
                 }
             }
 
-            items(approvals, key = { it.hostId.value + it.approval.requestId }) { approval ->
+            items(approvals, key = { it.hostId.value + it.runtimeSessionId.value + it.approval.requestId }) { approval ->
                 ApprovalCard(
                     attributedApproval = approval,
                     onRespond = { choice, all ->
-                        viewModel.respondApproval(approval.hostId, approval.approval.requestId, choice, all)
+                        viewModel.respondApproval(approval.hostId, approval.runtimeSessionId, approval.approval.requestId, choice, all)
                     }
                 )
             }
@@ -257,6 +285,92 @@ fun ChatScreen(
                     viewModel.respondClarify(activeClarify!!, value)
                 }
             )
+        }
+    }
+}
+
+@Composable
+fun HostStatusChip(
+    host: HermesHost,
+    isActive: Boolean,
+    isRunning: Boolean,
+    onClick: () -> Unit,
+    onStop: () -> Unit
+) {
+    val statusText = when {
+        isRunning -> "Running"
+        isActive -> "Active"
+        host.lastKnownStatus == HostStatus.ONLINE -> "Online"
+        host.lastKnownStatus == HostStatus.CONNECTING -> "Connecting"
+        host.lastKnownStatus == HostStatus.AUTH_EXPIRED -> "Auth Expired"
+        else -> "Offline"
+    }
+
+    val chipBg = when {
+        isRunning -> Color(0xFFF59E0B).copy(alpha = 0.15f)
+        isActive -> Color(0xFF38BDF8).copy(alpha = 0.15f)
+        else -> MaterialTheme.colorScheme.surface
+    }
+
+    val chipBorder = when {
+        isRunning -> Color(0xFFF59E0B)
+        isActive -> Color(0xFF38BDF8)
+        else -> Color(0xFF475569)
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(chipBg)
+            .clickable { onClick() }
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        if (isRunning) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(10.dp),
+                strokeWidth = 1.5.dp,
+                color = Color(0xFFF59E0B)
+            )
+        } else {
+            val dotColor = when (host.lastKnownStatus) {
+                HostStatus.ONLINE -> Color(0xFF10B981)
+                HostStatus.CONNECTING -> Color(0xFFF59E0B)
+                HostStatus.AUTH_EXPIRED -> Color(0xFFEF4444)
+                else -> Color(0xFF94A3B8)
+            }
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(dotColor)
+            )
+        }
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = "${host.displayName}: $statusText",
+            fontSize = 11.sp,
+            fontWeight = if (isActive || isRunning) FontWeight.Bold else FontWeight.Normal,
+            color = if (isRunning) Color(0xFFF59E0B) else if (isActive) Color(0xFF38BDF8) else MaterialTheme.colorScheme.onSurface
+        )
+
+        if (isRunning) {
+            Spacer(modifier = Modifier.width(4.dp))
+            Box(
+                modifier = Modifier
+                    .size(14.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFEF4444))
+                    .clickable { onStop() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Stop,
+                    contentDescription = "Stop Host",
+                    tint = Color.White,
+                    modifier = Modifier.size(10.dp)
+                )
+            }
         }
     }
 }

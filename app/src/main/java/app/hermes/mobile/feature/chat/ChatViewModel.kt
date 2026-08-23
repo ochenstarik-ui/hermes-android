@@ -44,6 +44,10 @@ class ChatViewModel(
         }
     }
 
+    fun getHostExecuting(hostId: HermesHostId): StateFlow<Boolean> {
+        return sessionRepo.getHostExecuting(sessionId, hostId)
+    }
+
     fun updateInputText(text: String) {
         _uiState.value = _uiState.value.copy(inputText = text)
     }
@@ -82,19 +86,30 @@ class ChatViewModel(
         }
     }
 
-    fun interruptSession() {
+    fun interruptSession(hostId: HermesHostId? = null) {
         viewModelScope.launch {
-            sessionRepo.interruptSession(sessionId)
+            sessionRepo.interruptSession(sessionId, hostId)
         }
     }
 
-    fun respondApproval(hostId: HermesHostId, requestId: String, choice: String, all: Boolean = false) {
+    fun interruptHost(hostId: HermesHostId) {
         viewModelScope.launch {
-            try {
-                sessionRepo.respondApproval(hostId, requestId, choice, all)
-            } catch (e: Exception) {
+            sessionRepo.interruptHost(sessionId, hostId)
+        }
+    }
+
+    fun respondApproval(
+        hostId: HermesHostId,
+        runtimeSessionId: RuntimeSessionId,
+        requestId: String,
+        choice: String,
+        all: Boolean = false
+    ) {
+        viewModelScope.launch {
+            val success = sessionRepo.respondApproval(hostId, runtimeSessionId, requestId, choice, all)
+            if (!success) {
                 _uiState.value = _uiState.value.copy(
-                    error = e.localizedMessage ?: "Failed to respond to approval"
+                    error = "Failed to submit approval response"
                 )
             }
         }
@@ -102,17 +117,16 @@ class ChatViewModel(
 
     fun respondClarify(attributed: HostAttributedClarify, answer: String) {
         viewModelScope.launch {
-            try {
-                val hostId = attributed.hostId
-                val req = attributed.request
-                when (req.promptType) {
-                    ClarifyType.CLARIFY -> sessionRepo.respondClarify(hostId, req.requestId, answer, req.questionId)
-                    ClarifyType.SUDO -> sessionRepo.respondSudo(hostId, req.requestId, answer)
-                    ClarifyType.SECRET -> sessionRepo.respondSecret(hostId, req.requestId, answer)
-                }
-            } catch (e: Exception) {
+            val hostId = attributed.hostId
+            val req = attributed.request
+            val success = when (req.promptType) {
+                ClarifyType.CLARIFY -> sessionRepo.respondClarify(hostId, req.requestId, answer, req.questionId)
+                ClarifyType.SUDO -> sessionRepo.respondSudo(hostId, req.requestId, answer)
+                ClarifyType.SECRET -> sessionRepo.respondSecret(hostId, req.requestId, answer)
+            }
+            if (!success) {
                 _uiState.value = _uiState.value.copy(
-                    error = e.localizedMessage ?: "Failed to respond to clarification"
+                    error = "Failed to submit clarification response"
                 )
             }
         }

@@ -29,9 +29,9 @@ import kotlin.random.Random
 class HermesHostRuntime(
     initialHost: HermesHost,
     val restClient: HermesRestClient = HermesRestClient(),
-    val gatewayClient: JsonRpcGatewayClient = JsonRpcGatewayClient(),
     val tokenVault: TokenVault,
-    val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    val gatewayClient: JsonRpcGatewayClient = JsonRpcGatewayClient(scope = scope)
 ) {
     private val _host = MutableStateFlow(initialHost)
     val host: StateFlow<HermesHost> = _host.asStateFlow()

@@ -92,6 +92,8 @@ class UnifiedContextBuilderTest {
         assertTrue(syncAll.contextPrompt.contains("Office PC"))
         assertTrue(syncAll.contextPrompt.contains("Write a python script"))
         assertTrue(syncAll.contextPrompt.contains("Linux Server"))
+        assertFalse(syncAll.contextPrompt.contains("192.168.1.100:9119"))
+        assertFalse(syncAll.contextPrompt.contains("192.168.1.50:9119"))
 
         // Case 2: Stale host binding (synced up to msg-1, needs delta msg-2 and msg-3)
         val syncDelta = UnifiedContextBuilder.buildContextSyncPayload(session, host2, hostsMap, "msg-1")
@@ -100,6 +102,7 @@ class UnifiedContextBuilderTest {
         assertFalse(syncDelta.contextPrompt.contains("Write a python script to parse CSV files."))
         assertTrue(syncDelta.contextPrompt.contains("Sure! Here is the python script"))
         assertTrue(syncDelta.contextPrompt.contains("Now run it on the linux server dataset."))
+        assertFalse(syncDelta.contextPrompt.contains("192.168.1.100:9119"))
 
         // Case 3: Fully synced host binding (synced up to msg-3)
         val syncUpToDate = UnifiedContextBuilder.buildContextSyncPayload(session, host2, hostsMap, "msg-3")

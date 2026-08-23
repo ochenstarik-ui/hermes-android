@@ -97,6 +97,7 @@ data class HostGatewayEvent(
 data class HostAttributedApproval(
     val hostId: HermesHostId,
     val hostDisplayName: String,
+    val runtimeSessionId: RuntimeSessionId,
     val approval: HermesApproval
 )
 
@@ -104,5 +105,6 @@ data class HostAttributedApproval(
 data class HostAttributedClarify(
     val hostId: HermesHostId,
     val hostDisplayName: String,
+    val runtimeSessionId: RuntimeSessionId? = null,
     val request: HermesClarifyRequest
 )

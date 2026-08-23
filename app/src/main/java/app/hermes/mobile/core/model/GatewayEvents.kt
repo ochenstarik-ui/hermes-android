@@ -13,6 +13,7 @@ import kotlinx.serialization.json.longOrNull
 
 sealed class GatewayEvent {
     abstract val rawPayload: JsonObject
+    open val sessionId: String? get() = null
 
     data class GatewayReadyEvent(
         val version: String,
@@ -23,42 +24,49 @@ sealed class GatewayEvent {
     data class MessageStartEvent(
         val messageId: String,
         val role: String = "assistant",
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
     data class MessageDeltaEvent(
         val messageId: String,
         val delta: String,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
     data class MessageInterimEvent(
         val messageId: String,
         val content: String,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
     data class MessageCompleteEvent(
         val messageId: String,
         val content: String,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
     data class ThinkingDeltaEvent(
         val messageId: String,
         val delta: String,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
     data class ReasoningDeltaEvent(
         val messageId: String,
         val delta: String,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
     data class ReasoningAvailableEvent(
         val messageId: String,
         val reasoning: String,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
@@ -66,18 +74,21 @@ sealed class GatewayEvent {
         val toolId: String,
         val name: String,
         val input: JsonElement? = null,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
     data class ToolProgressEvent(
         val toolId: String,
         val progress: String,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
     data class ToolGeneratingEvent(
         val toolId: String,
         val name: String,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
@@ -85,6 +96,7 @@ sealed class GatewayEvent {
         val toolId: String,
         val result: String,
         val isError: Boolean = false,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
@@ -94,6 +106,7 @@ sealed class GatewayEvent {
         val description: String? = null,
         val choices: List<String> = listOf("once", "deny"),
         val sessionKey: String? = null,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
@@ -102,24 +115,28 @@ sealed class GatewayEvent {
         val questionId: String? = null,
         val question: String,
         val promptType: ClarifyType = ClarifyType.CLARIFY,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
     data class SudoRequestEvent(
         val requestId: String,
         val question: String,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
     data class SecretRequestEvent(
         val requestId: String,
         val question: String,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
     data class StatusUpdateEvent(
         val status: String,
         val message: String? = null,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
@@ -127,28 +144,33 @@ sealed class GatewayEvent {
         val inputTokens: Long = 0,
         val outputTokens: Long = 0,
         val totalTokens: Long = 0,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
     data class SessionInfoEvent(
         val info: SessionInfo,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
     data class BackgroundCompleteEvent(
         val taskId: String,
         val result: String? = null,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
     data class ErrorEvent(
         val code: Int = -1,
         val message: String,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
     data class UnknownGatewayEvent(
         val eventType: String,
+        override val sessionId: String? = null,
         override val rawPayload: JsonObject
     ) : GatewayEvent()
 
@@ -233,6 +255,8 @@ sealed class GatewayEvent {
                 return array.mapNotNull { it.jsonPrimitive.content }
             }
 
+            val sessionKey = getNullableString("session_id", "session_key", "sessionKey", "sessionId")
+
             return when (eventType) {
                 "gateway.ready" -> GatewayReadyEvent(
                     version = getString("version", "server_version"),
@@ -242,58 +266,69 @@ sealed class GatewayEvent {
                 "message.start" -> MessageStartEvent(
                     messageId = getString("message_id", "id"),
                     role = getString("role").ifEmpty { "assistant" },
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "message.delta" -> MessageDeltaEvent(
                     messageId = getString("message_id", "id"),
                     delta = getString("delta", "text", "chunk"),
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "message.interim" -> MessageInterimEvent(
                     messageId = getString("message_id", "id"),
                     content = getString("content", "text"),
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "message.complete" -> MessageCompleteEvent(
                     messageId = getString("message_id", "id"),
                     content = getString("content", "text"),
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "thinking.delta" -> ThinkingDeltaEvent(
                     messageId = getString("message_id", "id"),
                     delta = getString("delta", "text", "chunk"),
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "reasoning.delta" -> ReasoningDeltaEvent(
                     messageId = getString("message_id", "id"),
                     delta = getString("delta", "text", "chunk"),
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "reasoning.available" -> ReasoningAvailableEvent(
                     messageId = getString("message_id", "id"),
                     reasoning = getString("reasoning", "content"),
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "tool.start" -> ToolStartEvent(
                     toolId = getString("tool_id", "id"),
                     name = getString("name", "tool_name"),
                     input = dataObj["input"] ?: root["input"],
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "tool.progress" -> ToolProgressEvent(
                     toolId = getString("tool_id", "id"),
                     progress = getString("progress", "message"),
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "tool.generating" -> ToolGeneratingEvent(
                     toolId = getString("tool_id", "id"),
                     name = getString("name", "tool_name"),
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "tool.complete" -> ToolCompleteEvent(
                     toolId = getString("tool_id", "id"),
                     result = getString("result", "output"),
                     isError = getBoolean("is_error", "error"),
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "approval.request" -> {
@@ -303,7 +338,8 @@ sealed class GatewayEvent {
                         command = getNullableString("command"),
                         description = getNullableString("description", "prompt"),
                         choices = if (choices.isNotEmpty()) choices else listOf("once", "deny"),
-                        sessionKey = getNullableString("session_key", "sessionKey"),
+                        sessionKey = sessionKey,
+                        sessionId = sessionKey,
                         rawPayload = root
                     )
                 }
@@ -312,27 +348,32 @@ sealed class GatewayEvent {
                     questionId = getNullableString("question_id", "questionId"),
                     question = getString("question", "prompt"),
                     promptType = ClarifyType.CLARIFY,
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "sudo.request" -> SudoRequestEvent(
                     requestId = getString("request_id", "id"),
                     question = getString("question", "prompt").ifEmpty { "Administrator password required:" },
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "secret.request" -> SecretRequestEvent(
                     requestId = getString("request_id", "id"),
                     question = getString("question", "prompt").ifEmpty { "Secret / Token required:" },
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "status.update" -> StatusUpdateEvent(
                     status = getString("status"),
                     message = getNullableString("message"),
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "session.usage" -> SessionUsageEvent(
                     inputTokens = getLong("input_tokens", "prompt_tokens"),
                     outputTokens = getLong("output_tokens", "completion_tokens"),
                     totalTokens = getLong("total_tokens"),
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "session.info" -> SessionInfoEvent(
@@ -343,23 +384,28 @@ sealed class GatewayEvent {
                         branch = getNullableString("branch"),
                         project = getNullableString("project")
                     ),
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "background.complete" -> BackgroundCompleteEvent(
                     taskId = getString("task_id", "id"),
                     result = getNullableString("result"),
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 "error" -> ErrorEvent(
                     code = getInt("code"),
                     message = getString("message").ifEmpty { "Unknown error" },
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
                 else -> UnknownGatewayEvent(
                     eventType = eventType.ifEmpty { "unknown" },
+                    sessionId = sessionKey,
                     rawPayload = root
                 )
             }
         }
     }
 }
+

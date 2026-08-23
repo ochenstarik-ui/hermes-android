@@ -1,6 +1,7 @@
 package app.hermes.mobile.core.storage
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 
@@ -46,24 +47,29 @@ class FakeUnifiedSessionDao : UnifiedSessionDao {
     private val sessions = mutableMapOf<String, UnifiedSessionEntity>()
     private val bindings = mutableMapOf<String, MutableList<HostBindingEntity>>()
     private val messages = mutableMapOf<String, MutableList<UnifiedMessageEntity>>()
-    private val sessionsFlow = MutableStateFlow<List<UnifiedSessionEntity>>(emptyList())
+    private val _sessionsFlow = MutableSharedFlow<List<UnifiedSessionEntity>>(replay = 1)
 
-    private fun updateFlow() {
-        sessionsFlow.value = sessions.values.sortedByDescending { it.updatedAt }
+    init {
+        _sessionsFlow.tryEmit(emptyList<UnifiedSessionEntity>())
     }
 
-    override fun getSessionsFlow(): Flow<List<UnifiedSessionEntity>> = sessionsFlow
+    private fun updateFlow() {
+        val list = sessions.values.sortedByDescending { it.updatedAt }.map { it.copy() }
+        _sessionsFlow.tryEmit(list)
+    }
+
+    override fun getSessionsFlow(): Flow<List<UnifiedSessionEntity>> = _sessionsFlow
 
     override suspend fun getSessions(): List<UnifiedSessionEntity> = sessions.values.sortedByDescending { it.updatedAt }
 
     override fun getSessionWithDetailsFlow(sessionId: String): Flow<UnifiedSessionWithDetails?> {
-        return sessionsFlow.map { getSessionWithDetails(sessionId) }
+        return _sessionsFlow.map { _: List<UnifiedSessionEntity> -> getSessionWithDetails(sessionId) }
     }
 
     override suspend fun getSessionWithDetails(sessionId: String): UnifiedSessionWithDetails? {
         val s = sessions[sessionId] ?: return null
-        val b = bindings[sessionId] ?: emptyList()
-        val m = messages[sessionId] ?: emptyList()
+        val b = bindings[sessionId]?.map { it.copy() } ?: emptyList()
+        val m = messages[sessionId]?.map { it.copy() } ?: emptyList()
         return UnifiedSessionWithDetails(session = s, bindings = b, messages = m)
     }
 
@@ -72,7 +78,7 @@ class FakeUnifiedSessionDao : UnifiedSessionDao {
     }
 
     override suspend fun getBindingsForSession(sessionId: String): List<HostBindingEntity> {
-        return bindings[sessionId] ?: emptyList()
+        return bindings[sessionId]?.map { it.copy() } ?: emptyList()
     }
 
     override suspend fun insertSession(session: UnifiedSessionEntity) {
@@ -96,18 +102,34 @@ class FakeUnifiedSessionDao : UnifiedSessionDao {
         val list = bindings.computeIfAbsent(binding.sessionId) { mutableListOf() }
         list.removeAll { it.hostId == binding.hostId }
         list.add(binding)
+        val s = sessions[binding.sessionId]
+        if (s != null) {
+            sessions[binding.sessionId] = s.copy(updatedAt = System.currentTimeMillis())
+        }
+        updateFlow()
     }
 
     override suspend fun insertOrUpdateBindings(bindingList: List<HostBindingEntity>) {
-        for (b in bindingList) insertOrUpdateBinding(b)
+        for (b in bindingList) {
+            val list = bindings.computeIfAbsent(b.sessionId) { mutableListOf() }
+            list.removeAll { it.hostId == b.hostId }
+            list.add(b)
+            val s = sessions[b.sessionId]
+            if (s != null) {
+                sessions[b.sessionId] = s.copy(updatedAt = System.currentTimeMillis())
+            }
+        }
+        updateFlow()
     }
 
     override suspend fun deleteBinding(sessionId: String, hostId: String) {
         bindings[sessionId]?.removeAll { it.hostId == hostId }
+        updateFlow()
     }
 
     override suspend fun deleteBindingsForSession(sessionId: String) {
         bindings.remove(sessionId)
+        updateFlow()
     }
 
     override suspend fun insertOrUpdateMessage(message: UnifiedMessageEntity) {
@@ -118,14 +140,25 @@ class FakeUnifiedSessionDao : UnifiedSessionDao {
         } else {
             list.add(message)
         }
+        updateFlow()
     }
 
     override suspend fun insertMessages(msgList: List<UnifiedMessageEntity>) {
-        for (m in msgList) insertOrUpdateMessage(m)
+        for (m in msgList) {
+            val list = messages.computeIfAbsent(m.sessionId) { mutableListOf() }
+            val idx = list.indexOfFirst { it.id == m.id }
+            if (idx >= 0) {
+                list[idx] = m
+            } else {
+                list.add(m)
+            }
+        }
+        updateFlow()
     }
 
     override suspend fun deleteMessagesForSession(sessionId: String) {
         messages.remove(sessionId)
+        updateFlow()
     }
 
     override suspend fun updateMessageContent(
@@ -148,6 +181,7 @@ class FakeUnifiedSessionDao : UnifiedSessionDao {
                 break
             }
         }
+        updateFlow()
     }
 
     override suspend fun updateActiveHost(sessionId: String, hostId: String, updatedAt: Long) {
@@ -173,6 +207,7 @@ class FakeUnifiedSessionDao : UnifiedSessionDao {
                 syncedAt = syncedAt,
                 state = state
             )
+            updateFlow()
         }
     }
 
@@ -181,6 +216,7 @@ class FakeUnifiedSessionDao : UnifiedSessionDao {
         val idx = list.indexOfFirst { it.hostId == hostId }
         if (idx >= 0) {
             list[idx] = list[idx].copy(state = state)
+            updateFlow()
         }
     }
 }

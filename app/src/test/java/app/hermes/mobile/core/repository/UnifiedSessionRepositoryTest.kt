@@ -8,6 +8,7 @@ import app.hermes.mobile.core.runtime.HermesConnectionManager
 import app.hermes.mobile.core.security.InMemoryTokenVault
 import app.hermes.mobile.core.storage.FakeHostDao
 import app.hermes.mobile.core.storage.FakeUnifiedSessionDao
+import app.hermes.mobile.core.storage.HostBindingEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -95,6 +96,19 @@ class UnifiedSessionRepositoryTest {
         val session = repository.createUnifiedSession(title = "Streaming Test", initialHostId = host1Id)
         testScheduler.advanceUntilIdle()
 
+        repository.registerRuntimeBinding(session.id, host1Id, RuntimeSessionId("rt_stream_1"))
+
+        sessionDao.insertOrUpdateBinding(
+            HostBindingEntity(
+                sessionId = session.id.value,
+                hostId = host1Id.value,
+                durableSessionId = "dur_stream_1",
+                runtimeSessionId = "rt_stream_1",
+                state = BindingState.RUNNING.name
+            )
+        )
+        testScheduler.advanceUntilIdle()
+
         val runtimeA = connectionManager.getRuntime(host1Id)
         assertNotNull(runtimeA)
 
@@ -103,39 +117,46 @@ class UnifiedSessionRepositoryTest {
             put("method", "event")
             put("params", buildJsonObject {
                 put("event", "message.start")
+                put("session_id", "rt_stream_1")
                 put("message_id", "msg_stream_1")
                 put("role", "assistant")
             })
         }
         runtimeA?.gatewayClient?.handleIncomingMessage(msgStart.toString())
+        testScheduler.advanceUntilIdle()
 
         // Stream delta 1
         val msgDelta1 = buildJsonObject {
             put("method", "event")
             put("params", buildJsonObject {
                 put("event", "message.delta")
+                put("session_id", "rt_stream_1")
                 put("message_id", "msg_stream_1")
                 put("delta", "Hello ")
             })
         }
         runtimeA?.gatewayClient?.handleIncomingMessage(msgDelta1.toString())
+        testScheduler.advanceUntilIdle()
 
         // Stream delta 2
         val msgDelta2 = buildJsonObject {
             put("method", "event")
             put("params", buildJsonObject {
                 put("event", "message.delta")
+                put("session_id", "rt_stream_1")
                 put("message_id", "msg_stream_1")
                 put("delta", "from Multi-Hermes!")
             })
         }
         runtimeA?.gatewayClient?.handleIncomingMessage(msgDelta2.toString())
+        testScheduler.advanceUntilIdle()
 
         // Stream complete
         val msgComplete = buildJsonObject {
             put("method", "event")
             put("params", buildJsonObject {
                 put("event", "message.complete")
+                put("session_id", "rt_stream_1")
                 put("message_id", "msg_stream_1")
                 put("content", "Hello from Multi-Hermes!")
             })
@@ -162,6 +183,19 @@ class UnifiedSessionRepositoryTest {
         val session = repository.createUnifiedSession(title = "Background Session", initialHostId = host1Id)
         testScheduler.advanceUntilIdle()
 
+        repository.registerRuntimeBinding(session.id, host1Id, RuntimeSessionId("rt_bg_1"))
+
+        sessionDao.insertOrUpdateBinding(
+            HostBindingEntity(
+                sessionId = session.id.value,
+                hostId = host1Id.value,
+                durableSessionId = "dur_bg_1",
+                runtimeSessionId = "rt_bg_1",
+                state = BindingState.RUNNING.name
+            )
+        )
+        testScheduler.advanceUntilIdle()
+
         val runtimeA = connectionManager.getRuntime(host1Id)
         val runtimeB = connectionManager.getRuntime(host2Id)
 
@@ -170,11 +204,13 @@ class UnifiedSessionRepositoryTest {
             put("method", "event")
             put("params", buildJsonObject {
                 put("event", "tool.start")
+                put("session_id", "rt_bg_1")
                 put("tool_id", "tool_bg_1")
                 put("name", "heavy_build_task")
             })
         }
         runtimeA?.gatewayClient?.handleIncomingMessage(toolStart.toString())
+        testScheduler.advanceUntilIdle()
 
         // User switches session active host to Host B
         repository.switchSessionActiveHost(session.id, host2Id)
@@ -185,6 +221,7 @@ class UnifiedSessionRepositoryTest {
             put("method", "event")
             put("params", buildJsonObject {
                 put("event", "tool.complete")
+                put("session_id", "rt_bg_1")
                 put("tool_id", "tool_bg_1")
                 put("result", "Build successful in 42s")
                 put("is_error", false)
