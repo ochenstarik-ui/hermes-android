@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">Hermes</string>
+    <string name="connections">Connections</string>
+    <string name="sessions">Sessions</string>
+    <string name="chat">Chat</string>
+    <string name="settings">Settings</string>
+    <string name="new_chat">New Chat</string>
+    <string name="add_connection">Add Connection</string>
+    <string name="test_connection">Test Connection</string>
+    <string name="sign_in">Sign In</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="connected">Connected</string>
+    <string name="connecting">Connecting…</string>
+    <string name="disconnected">Disconnected</string>
+    <string name="reconnecting">Reconnecting…</string>
+    <string name="failed">Failed</string>
+    <string name="authenticated">Authenticated</string>
+    <string name="auth_required">Auth Required</string>
+</resources>

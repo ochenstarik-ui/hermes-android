@@ -1,0 +1,418 @@
+package app.hermes.mobile.core.network
+
+import app.hermes.mobile.core.model.CreateSessionResult
+import app.hermes.mobile.core.model.DurableSessionId
+import app.hermes.mobile.core.model.GatewayEvent
+import app.hermes.mobile.core.model.JsonRpcError
+import app.hermes.mobile.core.model.JsonRpcRequest
+import app.hermes.mobile.core.model.JsonRpcResponse
+import app.hermes.mobile.core.model.PromptSubmitResult
+import app.hermes.mobile.core.model.ResumeSessionResult
+import app.hermes.mobile.core.model.RuntimeSessionId
+import app.hermes.mobile.core.model.SessionSummary
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.put
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+
+sealed class ConnectionState {
+    object Disconnected : ConnectionState()
+    object Connecting : ConnectionState()
+    object Connected : ConnectionState()
+    data class Reconnecting(val attempt: Int) : ConnectionState()
+    data class Failed(val error: Throwable) : ConnectionState()
+    data class AuthExpired(val message: String = "Session expired. Please sign in again.") : ConnectionState()
+}
+
+class JsonRpcGatewayClient(
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .readTimeout(0, TimeUnit.MILLISECONDS) // infinite for websockets
+        .pingInterval(30, TimeUnit.SECONDS)
+        .build(),
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+) {
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        coerceInputValues = true
+        encodeDefaults = true
+    }
+
+    private val reqCounter = AtomicInteger(0)
+    private val pendingRequests = ConcurrentHashMap<String, CompletableDeferred<JsonRpcResponse>>()
+    private var gatewayReadyDeferred = CompletableDeferred<Unit>()
+
+    private var activeWebSocket: WebSocket? = null
+
+    private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
+    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+
+    private val _events = MutableSharedFlow<GatewayEvent>(extraBufferCapacity = 64)
+    val events: SharedFlow<GatewayEvent> = _events.asSharedFlow()
+
+    private fun nextId(): String = "a${reqCounter.incrementAndGet()}"
+
+    fun connect(wsUrl: String, ticket: String? = null, allowCleartext: Boolean = false) {
+        if (!allowCleartext && wsUrl.startsWith("ws://", ignoreCase = true)) {
+            _connectionState.value = ConnectionState.Failed(
+                SecurityException("Cleartext WebSocket is not allowed unless explicitly permitted in connection settings.")
+            )
+            return
+        }
+
+        gatewayReadyDeferred = CompletableDeferred()
+        _connectionState.value = ConnectionState.Connecting
+
+        val fullUrl = if (!ticket.isNullOrEmpty()) {
+            val sep = if (wsUrl.contains("?")) "&" else "?"
+            "$wsUrl${sep}ticket=$ticket"
+        } else {
+            wsUrl
+        }
+
+        val request = Request.Builder()
+            .url(fullUrl)
+            .build()
+
+        activeWebSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                // Keep state as Connecting until gateway.ready event is received
+                _connectionState.value = ConnectionState.Connecting
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                handleIncomingMessage(text)
+            }
+
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                webSocket.close(code, reason)
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                _connectionState.value = ConnectionState.Disconnected
+                if (!gatewayReadyDeferred.isCompleted) {
+                    gatewayReadyDeferred.completeExceptionally(IOException("WebSocket closed: $code $reason"))
+                }
+                failPendingRequests(IOException("WebSocket closed: $code $reason"))
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                _connectionState.value = ConnectionState.Failed(t)
+                if (!gatewayReadyDeferred.isCompleted) {
+                    gatewayReadyDeferred.completeExceptionally(t)
+                }
+                failPendingRequests(t)
+            }
+        })
+    }
+
+    suspend fun awaitGatewayReady(timeoutMs: Long = 10_000) {
+        if (_connectionState.value is ConnectionState.Connected) return
+        withTimeout(timeoutMs) {
+            gatewayReadyDeferred.await()
+        }
+    }
+
+    fun setAuthExpired(message: String = "Session expired. Please sign in again.") {
+        _connectionState.value = ConnectionState.AuthExpired(message)
+        if (!gatewayReadyDeferred.isCompleted) {
+            gatewayReadyDeferred.completeExceptionally(IOException(message))
+        }
+        failPendingRequests(IOException(message))
+    }
+
+    fun disconnect() {
+        try {
+            activeWebSocket?.close(1000, "Client initiated disconnect")
+            activeWebSocket?.cancel()
+        } catch (_: Exception) {
+        }
+        activeWebSocket = null
+        _connectionState.value = ConnectionState.Disconnected
+        if (!gatewayReadyDeferred.isCompleted) {
+            gatewayReadyDeferred.completeExceptionally(IOException("Client disconnected"))
+        }
+        failPendingRequests(IOException("Client disconnected"))
+    }
+
+    private fun failPendingRequests(t: Throwable) {
+        for ((_, deferred) in pendingRequests) {
+            deferred.completeExceptionally(t)
+        }
+        pendingRequests.clear()
+    }
+
+    fun handleIncomingMessage(text: String) {
+        try {
+            val root = json.decodeFromString<JsonObject>(text)
+
+            // 1. Is this a JSON-RPC response with id matching pending request?
+            val id = root["id"]?.jsonPrimitive?.content
+            if (!id.isNullOrEmpty() && pendingRequests.containsKey(id)) {
+                val deferred = pendingRequests.remove(id)
+                val response = try {
+                    json.decodeFromString<JsonRpcResponse>(text)
+                } catch (e: Exception) {
+                    val isErr = root.containsKey("error")
+                    if (isErr) {
+                        JsonRpcResponse(
+                            jsonrpc = "2.0",
+                            id = id,
+                            error = JsonRpcError(
+                                code = -32000,
+                                message = root["error"]?.toString() ?: "Unknown error"
+                            )
+                        )
+                    } else {
+                        JsonRpcResponse(jsonrpc = "2.0", id = id, result = root["result"])
+                    }
+                }
+                deferred?.complete(response)
+                return
+            }
+
+            // 2. Otherwise, treat as Gateway Event / Notification
+            val event = GatewayEvent.parse(root)
+            if (event is GatewayEvent.GatewayReadyEvent) {
+                _connectionState.value = ConnectionState.Connected
+                if (!gatewayReadyDeferred.isCompleted) {
+                    gatewayReadyDeferred.complete(Unit)
+                }
+            }
+            scope.launch {
+                _events.emit(event)
+            }
+        } catch (e: Exception) {
+            // Ignore corrupted frames gracefully or log if debug
+        }
+    }
+
+    suspend fun sendRequest(
+        method: String,
+        params: JsonObject = buildJsonObject {},
+        timeoutMs: Long = 120_000
+    ): JsonRpcResponse {
+        val ws = activeWebSocket ?: throw IOException("WebSocket is not connected")
+        val reqId = nextId()
+        val request = JsonRpcRequest(id = reqId, method = method, params = params)
+        val jsonString = json.encodeToString(request)
+
+        val deferred = CompletableDeferred<JsonRpcResponse>()
+        pendingRequests[reqId] = deferred
+
+        return try {
+            val sent = ws.send(jsonString)
+            if (!sent) {
+                pendingRequests.remove(reqId)
+                throw IOException("Failed to send message over WebSocket")
+            }
+            withTimeout(timeoutMs) {
+                deferred.await()
+            }
+        } catch (e: Exception) {
+            pendingRequests.remove(reqId)
+            throw e
+        }
+    }
+
+    suspend fun listSessions(limit: Int = 200): List<SessionSummary> {
+        val params = buildJsonObject { put("limit", limit) }
+        val response = sendRequest("session.list", params)
+        if (response.error != null) {
+            throw IOException("RPC Error [${response.error.code}]: ${response.error.message}")
+        }
+        val result = response.result ?: return emptyList()
+
+        val list = mutableListOf<SessionSummary>()
+        val sessionsArray = when (result) {
+            is JsonArray -> result
+            is JsonObject -> result["sessions"] as? JsonArray ?: JsonArray(emptyList())
+            else -> JsonArray(emptyList())
+        }
+
+        for (item in sessionsArray) {
+            if (item is JsonObject) {
+                val durableVal = item["stored_session_id"]?.jsonPrimitive?.content
+                    ?: item["durable_id"]?.jsonPrimitive?.content
+                    ?: item["id"]?.jsonPrimitive?.content
+                    ?: item["durable_session_id"]?.jsonPrimitive?.content
+                    ?: ""
+                if (durableVal.isNotEmpty()) {
+                    list.add(
+                        SessionSummary(
+                            id = DurableSessionId(durableVal),
+                            title = item["title"]?.jsonPrimitive?.content ?: "Session ${durableVal.take(8)}",
+                            preview = item["preview"]?.jsonPrimitive?.content ?: "",
+                            startedAt = item["started_at"]?.jsonPrimitive?.longOrNull
+                                ?: item["createdAt"]?.jsonPrimitive?.longOrNull
+                                ?: System.currentTimeMillis(),
+                            messageCount = item["message_count"]?.jsonPrimitive?.intOrNull ?: 0,
+                            source = item["source"]?.jsonPrimitive?.content ?: "android"
+                        )
+                    )
+                }
+            }
+        }
+        return list
+    }
+
+    suspend fun createSession(cols: Int = 100, source: String = "android"): CreateSessionResult {
+        val params = buildJsonObject {
+            put("cols", cols)
+            put("source", source)
+        }
+        val response = sendRequest("session.create", params)
+        if (response.error != null) {
+            throw IOException("RPC Error [${response.error.code}]: ${response.error.message}")
+        }
+        val result = response.result as? JsonObject
+            ?: throw IOException("Invalid response format for session.create")
+
+        val durable = result["stored_session_id"]?.jsonPrimitive?.content
+            ?: result["durable_id"]?.jsonPrimitive?.content
+            ?: result["durable_session_id"]?.jsonPrimitive?.content
+            ?: result["id"]?.jsonPrimitive?.content
+            ?: result["session_id"]?.jsonPrimitive?.content
+            ?: throw IOException("Missing stored_session_id/durable_id in session.create result")
+
+        val runtime = result["session_id"]?.jsonPrimitive?.content
+            ?: result["runtime_id"]?.jsonPrimitive?.content
+            ?: result["runtime_session_id"]?.jsonPrimitive?.content
+            ?: durable
+
+        return CreateSessionResult(
+            durableId = DurableSessionId(durable),
+            runtimeId = RuntimeSessionId(runtime)
+        )
+    }
+
+    suspend fun resumeSession(durableId: DurableSessionId, source: String = "android"): ResumeSessionResult {
+        val params = buildJsonObject {
+            put("session_id", durableId.value)
+            put("source", source)
+        }
+        val response = sendRequest("session.resume", params)
+        if (response.error != null) {
+            throw IOException("RPC Error [${response.error.code}]: ${response.error.message}")
+        }
+        val result = response.result as? JsonObject
+            ?: throw IOException("Invalid response format for session.resume")
+
+        val durable = result["stored_session_id"]?.jsonPrimitive?.content
+            ?: result["durable_id"]?.jsonPrimitive?.content
+            ?: result["durable_session_id"]?.jsonPrimitive?.content
+            ?: durableId.value
+
+        val runtime = result["session_id"]?.jsonPrimitive?.content
+            ?: result["runtime_id"]?.jsonPrimitive?.content
+            ?: result["runtime_session_id"]?.jsonPrimitive?.content
+            ?: durable
+
+        return ResumeSessionResult(
+            durableId = DurableSessionId(durable),
+            runtimeId = RuntimeSessionId(runtime)
+        )
+    }
+
+    suspend fun submitPrompt(runtimeId: RuntimeSessionId, text: String): PromptSubmitResult {
+        val params = buildJsonObject {
+            put("session_id", runtimeId.value)
+            put("text", text)
+        }
+        val response = sendRequest("prompt.submit", params)
+        if (response.error != null) {
+            throw IOException("RPC Error [${response.error.code}]: ${response.error.message}")
+        }
+        val result = response.result as? JsonObject
+        val turnId = result?.get("turn_id")?.jsonPrimitive?.content
+            ?: result?.get("turnId")?.jsonPrimitive?.content
+        return PromptSubmitResult(turnId = turnId, accepted = true)
+    }
+
+    suspend fun interruptSession(runtimeId: RuntimeSessionId): Boolean {
+        val params = buildJsonObject {
+            put("session_id", runtimeId.value)
+        }
+        val response = sendRequest("session.interrupt", params)
+        return response.error == null
+    }
+
+    suspend fun respondApproval(
+        sessionKey: String,
+        requestId: String,
+        choice: String,
+        all: Boolean = false
+    ): Boolean {
+        val params = buildJsonObject {
+            put("session_id", sessionKey)
+            put("request_id", requestId)
+            put("choice", choice)
+            put("all", all)
+        }
+        val response = sendRequest("approval.respond", params)
+        return response.error == null
+    }
+
+    suspend fun respondClarify(
+        requestId: String,
+        answer: String,
+        questionId: String? = null
+    ): Boolean {
+        val params = buildJsonObject {
+            put("request_id", requestId)
+            put("answer", answer)
+            if (!questionId.isNullOrEmpty()) {
+                put("question_id", questionId)
+            }
+        }
+        val response = sendRequest("clarify.respond", params)
+        return response.error == null
+    }
+
+    suspend fun respondSudo(requestId: String, password: String): Boolean {
+        val params = buildJsonObject {
+            put("request_id", requestId)
+            put("password", password)
+        }
+        val response = sendRequest("sudo.respond", params)
+        return response.error == null
+    }
+
+    suspend fun respondSecret(requestId: String, value: String): Boolean {
+        val params = buildJsonObject {
+            put("request_id", requestId)
+            put("value", value)
+        }
+        val response = sendRequest("secret.respond", params)
+        return response.error == null
+    }
+}

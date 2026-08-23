@@ -1,0 +1,39 @@
+# Built application files
+*.apk
+*.aar
+*.aab
+*.dex
+*.class
+
+# Output and build directories
+build/
+app/build/
+**/build/
+.cxx/
+captures/
+
+# Gradle files
+.gradle/
+
+# Local configuration file (sdk path, secrets, etc.)
+local.properties
+
+# Android Studio / IntelliJ IDEA files
+.idea/
+*.iml
+.idea/caches
+.idea/libraries
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+
+# Kotlin
+.kotlin/
+
+# Log files
+*.log
+
+# OS & temporary files
+.DS_Store
+Thumbs.db
