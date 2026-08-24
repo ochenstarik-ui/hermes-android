@@ -102,17 +102,48 @@ hermes serve --host 0.0.0.0 --port 9119
 Run the full automated test suite:
 
 ```powershell
-.\gradlew.bat testDebugUnitTest
+.\gradlew.bat test
 ```
 
 Run Android Lint:
 
 ```powershell
-.\gradlew.bat lintDebug
+.\gradlew.bat lint
 ```
 
 Assemble Debug APK:
 
 ```powershell
 .\gradlew.bat assembleDebug
+```
+
+---
+
+## 📱 Instant QR Onboarding — Hermes Pair (`hermes-pair/`)
+
+Inside the `hermes-pair/` directory is the cross-platform desktop companion application written in Rust. It runs on Windows and Linux to auto-discover your local IP and generate a secure QR code for instant onboarding with Hermes Android.
+
+### Windows (GUI or CLI):
+```powershell
+# GUI window
+.\hermes-pair\dist\windows\HermesPair.exe
+
+# Terminal QR output
+.\hermes-pair\dist\windows\HermesPair.exe qr --port 9119
+```
+
+### Linux (GUI or Headless Server):
+```bash
+# GUI window
+./hermes-pair/dist/linux/hermes-pair
+
+# Headless / Terminal QR
+./hermes-pair/dist/linux/hermes-pair --terminal --port 9119
+```
+
+### Building Hermes Pair from Source:
+```bash
+cd hermes-pair
+cargo test
+cargo build --release
 ```

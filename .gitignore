@@ -37,3 +37,7 @@ local.properties
 # OS & temporary files
 .DS_Store
 Thumbs.db
+
+# Rust / Cargo
+hermes-pair/target/
+**/target/
