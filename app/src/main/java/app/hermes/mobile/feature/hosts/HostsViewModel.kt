@@ -22,7 +22,10 @@ data class HostsUiState(
     val testStatus: HermesServerStatus? = null,
     val testError: String? = null,
     val isAuthenticating: Boolean = false,
-    val authError: String? = null
+    val authError: String? = null,
+    val qrScanActive: Boolean = false,
+    val scannedPayload: app.hermes.mobile.core.pairing.HermesPairingPayload? = null,
+    val qrScanError: String? = null
 )
 
 class HostsViewModel(
@@ -113,6 +116,67 @@ class HostsViewModel(
                     authError = result.exceptionOrNull()?.message ?: "Authentication failed"
                 )
             }
+        }
+    }
+
+    fun startQrScan() {
+        _uiState.value = _uiState.value.copy(qrScanActive = true, scannedPayload = null, qrScanError = null)
+    }
+
+    fun dismissQrScan() {
+        _uiState.value = _uiState.value.copy(qrScanActive = false, scannedPayload = null, qrScanError = null)
+    }
+
+    fun onQrScanned(rawUri: String) {
+        when (val result = app.hermes.mobile.core.pairing.HermesPairingParser.parse(rawUri)) {
+            is app.hermes.mobile.core.pairing.PairingValidationResult.Success -> {
+                _uiState.value = _uiState.value.copy(qrScanActive = false, scannedPayload = result.payload, qrScanError = null)
+            }
+            is app.hermes.mobile.core.pairing.PairingValidationResult.Expired -> {
+                _uiState.value = _uiState.value.copy(qrScanActive = false, qrScanError = "QR code has expired")
+            }
+            is app.hermes.mobile.core.pairing.PairingValidationResult.InvalidPayload -> {
+                _uiState.value = _uiState.value.copy(qrScanActive = false, qrScanError = "Invalid QR code: ${result.reason}")
+            }
+            is app.hermes.mobile.core.pairing.PairingValidationResult.InvalidScheme -> {
+                _uiState.value = _uiState.value.copy(qrScanActive = false, qrScanError = "Invalid scheme: ${result.reason}")
+            }
+            is app.hermes.mobile.core.pairing.PairingValidationResult.InvalidVersion -> {
+                _uiState.value = _uiState.value.copy(qrScanActive = false, qrScanError = "Unsupported QR version: ${result.version}")
+            }
+        }
+    }
+
+    fun confirmPairing(payload: app.hermes.mobile.core.pairing.HermesPairingPayload, allowCleartext: Boolean) {
+        viewModelScope.launch {
+            val existingHost = connectionManager.hostDao.getHost(payload.hostId)
+            val hostToConnect = if (existingHost != null) {
+                val updatedHost = HermesHost(
+                    id = HermesHostId(payload.hostId),
+                    displayName = payload.name,
+                    baseUrl = "${payload.scheme}://${payload.host}:${payload.port}",
+                    allowCleartext = allowCleartext,
+                    enabled = existingHost.enabled,
+                    lastSeenAt = existingHost.lastSeenAt,
+                    lastKnownStatus = HostStatus.valueOf(existingHost.lastKnownStatus)
+                )
+                connectionManager.updateHost(updatedHost)
+                updatedHost
+            } else {
+                val newHost = HermesHost(
+                    id = HermesHostId(payload.hostId),
+                    displayName = payload.name,
+                    baseUrl = "${payload.scheme}://${payload.host}:${payload.port}",
+                    allowCleartext = allowCleartext,
+                    enabled = true,
+                    lastSeenAt = System.currentTimeMillis(),
+                    lastKnownStatus = HostStatus.OFFLINE
+                )
+                connectionManager.addHost(newHost)
+                newHost
+            }
+            _uiState.value = _uiState.value.copy(scannedPayload = null)
+            connectHost(hostToConnect.id)
         }
     }
 }

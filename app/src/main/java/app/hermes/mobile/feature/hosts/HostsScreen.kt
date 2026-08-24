@@ -82,6 +82,11 @@ fun HostsScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
+                },
+                actions = {
+                    IconButton(onClick = { viewModel.startQrScan() }) {
+                        Icon(Icons.Default.Add, contentDescription = "Scan QR")
+                    }
                 }
             )
         },
@@ -174,7 +179,7 @@ fun HostsScreen(
             }
         }
 
-        if (showAddDialog) {
+                if (showAddDialog) {
             AddHostDialog(
                 uiState = uiState,
                 onDismiss = { showAddDialog = false },
@@ -182,6 +187,39 @@ fun HostsScreen(
                 onSave = { name, url, cleartext ->
                     viewModel.saveHost(name, url, cleartext)
                     showAddDialog = false
+                }
+            )
+        }
+
+        if (uiState.qrScanActive) {
+            QrScannerSheet(
+                onQrScanned = { viewModel.onQrScanned(it) },
+                onDismiss = { viewModel.dismissQrScan() }
+            )
+        }
+
+        uiState.scannedPayload?.let { payload ->
+            val existingHost = hosts.find { it.id.value == payload.hostId }
+            PairingPreviewDialog(
+                payload = payload,
+                isExistingHost = existingHost != null,
+                existingHostName = existingHost?.displayName,
+                onConfirm = { allowCleartext ->
+                    viewModel.confirmPairing(payload, allowCleartext)
+                },
+                onCancel = { viewModel.dismissQrScan() }
+            )
+        }
+        
+        if (uiState.qrScanError != null) {
+            AlertDialog(
+                onDismissRequest = { viewModel.dismissQrScan() },
+                title = { Text("QR Scan Error") },
+                text = { Text(uiState.qrScanError ?: "") },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.dismissQrScan() }) {
+                        Text("OK")
+                    }
                 }
             )
         }
