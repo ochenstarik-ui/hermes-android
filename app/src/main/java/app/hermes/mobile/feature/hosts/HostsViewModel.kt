@@ -151,6 +151,11 @@ class HostsViewModel(
         viewModelScope.launch {
             val existingHost = connectionManager.hostDao.getHost(payload.hostId)
             val hostToConnect = if (existingHost != null) {
+                val oldCanonical = app.hermes.mobile.core.pairing.CanonicalEndpoint.fromBaseUrl(existingHost.baseUrl)
+                if (oldCanonical != payload.canonicalEndpoint) {
+                    connectionManager.disconnectHost(HermesHostId(payload.hostId))
+                    tokenVault.clearTokens(payload.hostId)
+                }
                 val updatedHost = HermesHost(
                     id = HermesHostId(payload.hostId),
                     displayName = payload.name,

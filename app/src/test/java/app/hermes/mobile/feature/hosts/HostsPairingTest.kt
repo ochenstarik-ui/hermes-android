@@ -125,7 +125,41 @@ class HostsPairingTest {
 
     @Test
     fun testExistingTokensPreservedOnHostUpdate() = runTest {
-        // Just verify updateHost is called and tokenVault clear isn't.
+        val hostId = UUID.randomUUID().toString()
+        val existingEntity = HostEntity(
+            id = hostId,
+            displayName = "Old Name",
+            baseUrl = "http://192.168.1.5:9119",
+            allowCleartext = true,
+            enabled = true,
+            lastSeenAt = 1000L,
+            lastKnownStatus = "OFFLINE"
+        )
+        
+        val payload = HermesPairingPayload(
+            v = 1,
+            type = "hermes-pair",
+            hostId = hostId,
+            name = "Updated Server Name",
+            host = "192.168.1.5",
+            port = 9119,
+            scheme = "http",
+            expiresAt = (System.currentTimeMillis() / 1000) + 3600,
+            nonce = "nonce"
+        )
+        
+        coEvery { hostDao.getHost(hostId) } returns existingEntity
+        coEvery { connectionManager.updateHost(any()) } returns Unit
+        coEvery { connectionManager.connectHost(any()) } returns Result.success(Unit)
+        
+        viewModel.confirmPairing(payload, allowCleartext = true)
+        
+        coVerify(exactly = 0) { tokenVault.clearTokens(any()) }
+        coVerify(exactly = 0) { connectionManager.disconnectHost(any()) }
+    }
+
+    @Test
+    fun testExistingTokensClearedOnEndpointChange() = runTest {
         val hostId = UUID.randomUUID().toString()
         val existingEntity = HostEntity(
             id = hostId,
@@ -150,9 +184,12 @@ class HostsPairingTest {
         )
         
         coEvery { hostDao.getHost(hostId) } returns existingEntity
+        coEvery { connectionManager.updateHost(any()) } returns Unit
+        coEvery { connectionManager.connectHost(any()) } returns Result.success(Unit)
         
         viewModel.confirmPairing(payload, allowCleartext = true)
         
-        coVerify(exactly = 0) { tokenVault.clearTokens(any()) }
+        coVerify { tokenVault.clearTokens(hostId) }
+        coVerify { connectionManager.disconnectHost(app.hermes.mobile.core.model.HermesHostId(hostId)) }
     }
 }

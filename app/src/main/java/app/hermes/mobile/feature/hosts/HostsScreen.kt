@@ -200,10 +200,15 @@ fun HostsScreen(
 
         uiState.scannedPayload?.let { payload ->
             val existingHost = hosts.find { it.id.value == payload.hostId }
+            val isEndpointChanged = existingHost != null && 
+                app.hermes.mobile.core.pairing.CanonicalEndpoint.fromBaseUrl(existingHost.baseUrl) != payload.canonicalEndpoint
+                
             PairingPreviewDialog(
                 payload = payload,
                 isExistingHost = existingHost != null,
                 existingHostName = existingHost?.displayName,
+                isEndpointChanged = isEndpointChanged,
+                oldEndpointUrl = existingHost?.baseUrl,
                 onConfirm = { allowCleartext ->
                     viewModel.confirmPairing(payload, allowCleartext)
                 },

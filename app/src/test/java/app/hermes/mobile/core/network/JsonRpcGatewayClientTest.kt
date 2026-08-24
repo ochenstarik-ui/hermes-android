@@ -95,7 +95,12 @@ class JsonRpcGatewayClientTest {
         client.connect(wsUrl, allowCleartext = true)
 
         // Give WS a moment to open transport
-        kotlinx.coroutines.delay(100)
+        var retries = 0
+        while (serverWebSocket == null && retries < 50) {
+            kotlinx.coroutines.delay(50)
+            retries++
+        }
+        
         // Must still be Connecting before gateway.ready is received
         assertEquals(ConnectionState.Connecting, client.connectionState.value)
 
