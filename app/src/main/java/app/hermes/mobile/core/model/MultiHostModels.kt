@@ -90,7 +90,9 @@ data class UnifiedSession(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val bindings: Map<HermesHostId, HostSessionBinding> = emptyMap(),
-    val timeline: List<UnifiedMessage> = emptyList()
+    val timeline: List<UnifiedMessage> = emptyList(),
+    val messageCount: Int = timeline.size,
+    val lastMessagePreview: String? = null
 )
 
 @Serializable

@@ -285,8 +285,9 @@ fun UnifiedSessionCard(
 
                 // Attached hosts counter
                 val attachedCount = session.bindings.size.coerceAtLeast(1)
+                val msgCount = if (session.messageCount > 0) session.messageCount else session.timeline.size
                 Text(
-                    text = "$attachedCount attached • ${session.timeline.size} msgs",
+                    text = "$attachedCount attached • $msgCount msgs",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

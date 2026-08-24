@@ -88,6 +88,28 @@ class FakeUnifiedSessionDao : UnifiedSessionDao {
         sessions.values.sortedByDescending { it.updatedAt }.map { it.copy() }
     }
 
+    override fun getUnifiedSessionsSummaryFlow(): Flow<List<UnifiedSessionSummaryProjection>> =
+        _sessionsFlow.map { getUnifiedSessionsSummary() }
+
+    override suspend fun getUnifiedSessionsSummary(): List<UnifiedSessionSummaryProjection> = synchronized(lock) {
+        sessions.values.sortedByDescending { it.updatedAt }.map { s ->
+            val msgList = messages[s.id]
+            val lastMsg = msgList?.sortedWith(messageComparator)?.lastOrNull()?.content
+            val msgCount = msgList?.size ?: 0
+            val bindCount = bindings[s.id]?.size ?: 0
+            UnifiedSessionSummaryProjection(
+                id = s.id,
+                title = s.title,
+                activeHostId = s.activeHostId,
+                createdAt = s.createdAt,
+                updatedAt = s.updatedAt,
+                messageCount = msgCount,
+                bindingCount = bindCount,
+                lastMessagePreview = lastMsg
+            )
+        }
+    }
+
     override suspend fun getSession(sessionId: String): UnifiedSessionEntity? = synchronized(lock) {
         sessions[sessionId]?.copy()
     }

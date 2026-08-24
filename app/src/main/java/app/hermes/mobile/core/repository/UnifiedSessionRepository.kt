@@ -46,14 +46,30 @@ class UnifiedSessionRepository(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
-    val sessions: StateFlow<List<UnifiedSession>> = sessionDao.getSessionsFlow()
+    companion object {
+        const val MAX_CACHED_SESSIONS = 10
+    }
+
+    val sessions: StateFlow<List<UnifiedSession>> = sessionDao.getUnifiedSessionsSummaryFlow()
         .map { list ->
-            list.map { entity ->
-                val details = sessionDao.getSessionWithDetails(entity.id)
-                details?.toDomain() ?: entity.toDomainPlaceholder()
+            list.map { summary ->
+                UnifiedSession(
+                    id = UnifiedSessionId(summary.id),
+                    title = summary.title,
+                    activeHostId = HermesHostId(summary.activeHostId),
+                    createdAt = summary.createdAt,
+                    updatedAt = summary.updatedAt,
+                    bindings = emptyMap(),
+                    timeline = emptyList(),
+                    messageCount = summary.messageCount,
+                    lastMessagePreview = summary.lastMessagePreview
+                )
             }
         }
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    // Scoped tool to message attribution mapping (toolId -> messageId)
+    private val toolToMessageMap = ConcurrentHashMap<String, String>()
 
     // Per-session approval requests state
     private val sessionApprovalsState = ConcurrentHashMap<UnifiedSessionId, MutableStateFlow<List<HostAttributedApproval>>>()
@@ -126,7 +142,40 @@ class UnifiedSessionRepository(
         return sessionHostMutexes.computeIfAbsent(Pair(sessionId, hostId)) { Mutex() }
     }
 
+    private fun pruneIdleSessionCaches() {
+        if (sessionMessagesState.size > MAX_CACHED_SESSIONS) {
+            val idleSessionIds = sessionMessagesState.keys.filter { sid ->
+                val isExec = sessionExecutingState[sid]?.value ?: false
+                !isExec
+            }
+            for (sid in idleSessionIds) {
+                if (sessionMessagesState.size <= MAX_CACHED_SESSIONS) break
+                releaseSession(sid)
+            }
+        }
+    }
+
+    fun releaseSession(sessionId: UnifiedSessionId) {
+        val executing = sessionExecutingState[sessionId]?.value ?: false
+        if (executing) return
+
+        val messages = sessionMessagesState.remove(sessionId)?.value ?: emptyList()
+        for (m in messages) {
+            for (t in m.tools) {
+                toolToMessageMap.remove(t.id)
+            }
+        }
+        sessionExecutingState.remove(sessionId)
+        sessionApprovalsState.remove(sessionId)
+        sessionClarifyQueueState.remove(sessionId)
+        sessionActiveClarifyFlows.remove(sessionId)
+        hostExecutingState.entries.removeIf { it.key.first == sessionId }
+        sessionHostMutexes.entries.removeIf { it.key.first == sessionId }
+        _hasActiveTasks.update { hostExecutingState.values.any { it.value } }
+    }
+
     fun getSessionMessages(sessionId: UnifiedSessionId): StateFlow<List<UnifiedMessage>> {
+        pruneIdleSessionCaches()
         return sessionMessagesState.computeIfAbsent(sessionId) {
             val flow = MutableStateFlow<List<UnifiedMessage>>(emptyList())
             scope.launch {
@@ -174,6 +223,7 @@ class UnifiedSessionRepository(
         title: String = "New Session",
         initialHostId: HermesHostId? = null
     ): UnifiedSession {
+        pruneIdleSessionCaches()
         val hostId = initialHostId ?: connectionManager.activeHostId.value
             ?: connectionManager.hosts.value.firstOrNull()?.id
             ?: throw IllegalStateException("No Hermes hosts configured. Please add a host before creating a session.")
@@ -211,7 +261,12 @@ class UnifiedSessionRepository(
 
     suspend fun deleteUnifiedSession(sessionId: UnifiedSessionId) {
         sessionDao.deleteSession(sessionId.value)
-        sessionMessagesState.remove(sessionId)
+        val msgs = sessionMessagesState.remove(sessionId)?.value ?: emptyList()
+        for (m in msgs) {
+            for (t in m.tools) {
+                toolToMessageMap.remove(t.id)
+            }
+        }
         sessionExecutingState.remove(sessionId)
         sessionApprovalsState.remove(sessionId)
         sessionClarifyQueueState.remove(sessionId)
@@ -771,6 +826,8 @@ class UnifiedSessionRepository(
                 if (event.messageId.isBlank()) return
                 val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
                 setHostExecuting(sessionId, hostId, false)
+                // Clean up tool mappings associated with this message upon completion
+                toolToMessageMap.entries.removeIf { it.value == event.messageId }
                 scope.launch {
                     sessionDao.updateBindingState(sessionId.value, hostId.value, BindingState.READY.name)
                 }
@@ -800,7 +857,12 @@ class UnifiedSessionRepository(
                 if (event.messageId.isBlank()) return
                 val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
                 val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
-                val targetAssistant = flow.value.lastOrNull { (it.id == event.messageId || it.role == MessageRole.ASSISTANT) && it.hostId == hostId }
+                val targetAssistant = if (event.messageId.isNotBlank()) {
+                    flow.value.find { it.id == event.messageId && (it.hostId == hostId || it.hostId == null) }
+                } else {
+                    // Fallback for events without messageId: bind to last assistant for this host
+                    flow.value.lastOrNull { it.role == MessageRole.ASSISTANT && it.hostId == hostId }
+                }
                 if (targetAssistant != null) {
                     updateMessageInSession(sessionId, targetAssistant.id, immediate = false) {
                         it.copy(thinking = (it.thinking ?: "") + event.delta)
@@ -812,7 +874,12 @@ class UnifiedSessionRepository(
                 if (event.messageId.isBlank()) return
                 val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
                 val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
-                val targetAssistant = flow.value.lastOrNull { (it.id == event.messageId || it.role == MessageRole.ASSISTANT) && it.hostId == hostId }
+                val targetAssistant = if (event.messageId.isNotBlank()) {
+                    flow.value.find { it.id == event.messageId && (it.hostId == hostId || it.hostId == null) }
+                } else {
+                    // Fallback for events without messageId: bind to last assistant for this host
+                    flow.value.lastOrNull { it.role == MessageRole.ASSISTANT && it.hostId == hostId }
+                }
                 if (targetAssistant != null) {
                     updateMessageInSession(sessionId, targetAssistant.id, immediate = false) {
                         it.copy(thinking = (it.thinking ?: "") + event.delta)
@@ -824,7 +891,12 @@ class UnifiedSessionRepository(
                 if (event.messageId.isBlank()) return
                 val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
                 val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
-                val targetAssistant = flow.value.lastOrNull { (it.id == event.messageId || it.role == MessageRole.ASSISTANT) && it.hostId == hostId }
+                val targetAssistant = if (event.messageId.isNotBlank()) {
+                    flow.value.find { it.id == event.messageId && (it.hostId == hostId || it.hostId == null) }
+                } else {
+                    // Fallback for events without messageId: bind to last assistant for this host
+                    flow.value.lastOrNull { it.role == MessageRole.ASSISTANT && it.hostId == hostId }
+                }
                 if (targetAssistant != null) {
                     updateMessageInSession(sessionId, targetAssistant.id, immediate = true) {
                         it.copy(thinking = event.reasoning)
@@ -834,9 +906,12 @@ class UnifiedSessionRepository(
 
             is GatewayEvent.ToolStartEvent -> {
                 if (event.toolId.isBlank()) return
-                val sessionId = findSessionForEvent(hostId, event.sessionId) ?: return
+                val explicitMessageId = (event.rawPayload["payload"] as? kotlinx.serialization.json.JsonObject)?.get("message_id")?.let {
+                    if (it is kotlinx.serialization.json.JsonPrimitive) it.content else null
+                }
+                val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = explicitMessageId) ?: return
                 val tool = ToolActivity(id = event.toolId, name = event.name, status = "running")
-                attachToolToSessionMessage(sessionId, hostId, tool)
+                attachToolToSessionMessage(sessionId, hostId, tool, explicitMessageId = explicitMessageId)
             }
 
             is GatewayEvent.ToolProgressEvent -> {
@@ -980,17 +1055,32 @@ class UnifiedSessionRepository(
         }
     }
 
-    private fun attachToolToSessionMessage(sessionId: UnifiedSessionId, hostId: HermesHostId, tool: ToolActivity) {
+    private fun attachToolToSessionMessage(
+        sessionId: UnifiedSessionId,
+        hostId: HermesHostId,
+        tool: ToolActivity,
+        explicitMessageId: String? = null
+    ) {
         val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
-        val lastAssistant = flow.value.lastOrNull { it.role == MessageRole.ASSISTANT && it.hostId == hostId }
-        if (lastAssistant != null) {
-            updateMessageInSession(sessionId, lastAssistant.id, immediate = true) {
+        val targetMsg = if (!explicitMessageId.isNullOrBlank()) {
+            flow.value.find { it.id == explicitMessageId && (it.hostId == hostId || it.hostId == null) }
+        } else {
+            // Strict attribution to the currently streaming assistant message for this host, or the last assistant message for this host
+            flow.value.lastOrNull { it.isStreaming && it.role == MessageRole.ASSISTANT && it.hostId == hostId }
+                ?: flow.value.lastOrNull { it.role == MessageRole.ASSISTANT && it.hostId == hostId }
+        }
+
+        if (targetMsg != null) {
+            toolToMessageMap[tool.id] = targetMsg.id
+            updateMessageInSession(sessionId, targetMsg.id, immediate = true) {
                 val updatedTools = it.tools.filterNot { t -> t.id == tool.id } + tool
                 it.copy(tools = updatedTools)
             }
         } else {
+            val newId = explicitMessageId?.ifBlank { null } ?: UUID.randomUUID().toString()
+            toolToMessageMap[tool.id] = newId
             val newMsg = UnifiedMessage(
-                id = UUID.randomUUID().toString(),
+                id = newId,
                 role = MessageRole.ASSISTANT,
                 content = "",
                 hostId = hostId,
@@ -1007,7 +1097,13 @@ class UnifiedSessionRepository(
         transform: (ToolActivity) -> ToolActivity
     ) {
         val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
-        val targetMsg = flow.value.lastOrNull { msg -> msg.tools.any { it.id == toolId } }
+        val boundMessageId = toolToMessageMap[toolId]
+        val targetMsg = if (boundMessageId != null) {
+            flow.value.find { it.id == boundMessageId }
+        } else {
+            flow.value.lastOrNull { msg -> msg.tools.any { it.id == toolId } }
+        }
+
         if (targetMsg != null) {
             updateMessageInSession(sessionId, targetMsg.id, immediate = true) { msg ->
                 val updatedTools = msg.tools.map { if (it.id == toolId) transform(it) else it }

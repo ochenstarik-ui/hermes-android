@@ -90,3 +90,14 @@ data class UnifiedSessionWithDetails(
     val bindings: List<HostBindingEntity> = emptyList(),
     val messages: List<UnifiedMessageEntity> = emptyList()
 )
+
+data class UnifiedSessionSummaryProjection(
+    val id: String,
+    val title: String,
+    val activeHostId: String,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
+    val messageCount: Int = 0,
+    val bindingCount: Int = 0,
+    val lastMessagePreview: String? = null
+)

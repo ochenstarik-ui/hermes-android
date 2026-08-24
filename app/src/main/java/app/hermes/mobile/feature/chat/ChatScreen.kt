@@ -55,6 +55,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.conflate
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -111,10 +113,28 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(messages.size, messages.lastOrNull()?.content?.length, approvals.size) {
-        if (messages.isNotEmpty() || approvals.isNotEmpty()) {
-            val totalCount = messages.size + approvals.size
-            listState.animateScrollToItem(totalCount)
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val totalItems = messages.size + approvals.size
+            val isStreaming = isExecuting || messages.any { it.isStreaming }
+            val isAtBottom = !listState.canScrollForward || (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1) >= (listState.layoutInfo.totalItemsCount - 2)
+            val lastMessageLength = messages.lastOrNull()?.content?.length ?: 0
+            listOf(totalItems, isStreaming, isAtBottom, lastMessageLength)
+        }
+        .conflate()
+        .collect { stateList ->
+            val totalItems = stateList[0] as Int
+            val isStreaming = stateList[1] as Boolean
+            val isAtBottom = stateList[2] as Boolean
+            
+            if (totalItems > 0 && isAtBottom) {
+                val targetIndex = maxOf(0, totalItems - 1)
+                if (isStreaming) {
+                    listState.scrollToItem(targetIndex)
+                } else {
+                    listState.animateScrollToItem(targetIndex)
+                }
+            }
         }
     }
 

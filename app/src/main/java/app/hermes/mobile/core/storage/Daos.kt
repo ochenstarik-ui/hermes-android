@@ -35,6 +35,36 @@ interface UnifiedSessionDao {
     @Query("SELECT * FROM unified_sessions ORDER BY updatedAt DESC")
     suspend fun getSessions(): List<UnifiedSessionEntity>
 
+    @Query("""
+        SELECT 
+            s.id AS id,
+            s.title AS title,
+            s.activeHostId AS activeHostId,
+            s.createdAt AS createdAt,
+            s.updatedAt AS updatedAt,
+            (SELECT COUNT(*) FROM unified_messages WHERE sessionId = s.id) AS messageCount,
+            (SELECT COUNT(*) FROM host_bindings WHERE sessionId = s.id) AS bindingCount,
+            (SELECT content FROM unified_messages WHERE sessionId = s.id ORDER BY createdAt DESC, id DESC LIMIT 1) AS lastMessagePreview
+        FROM unified_sessions s
+        ORDER BY s.updatedAt DESC
+    """)
+    fun getUnifiedSessionsSummaryFlow(): Flow<List<UnifiedSessionSummaryProjection>>
+
+    @Query("""
+        SELECT 
+            s.id AS id,
+            s.title AS title,
+            s.activeHostId AS activeHostId,
+            s.createdAt AS createdAt,
+            s.updatedAt AS updatedAt,
+            (SELECT COUNT(*) FROM unified_messages WHERE sessionId = s.id) AS messageCount,
+            (SELECT COUNT(*) FROM host_bindings WHERE sessionId = s.id) AS bindingCount,
+            (SELECT content FROM unified_messages WHERE sessionId = s.id ORDER BY createdAt DESC, id DESC LIMIT 1) AS lastMessagePreview
+        FROM unified_sessions s
+        ORDER BY s.updatedAt DESC
+    """)
+    suspend fun getUnifiedSessionsSummary(): List<UnifiedSessionSummaryProjection>
+
     @Query("SELECT * FROM unified_sessions WHERE id = :sessionId LIMIT 1")
     suspend fun getSession(sessionId: String): UnifiedSessionEntity?
 

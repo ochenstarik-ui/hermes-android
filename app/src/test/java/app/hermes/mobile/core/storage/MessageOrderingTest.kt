@@ -86,7 +86,6 @@ class MessageOrderingTest {
         assertEquals("Repository getUnifiedSession must order messages by createdAt ASC, id ASC", expected, timelineIds)
 
         val sessionFromList = repository.sessions.value.find { it.id == session.id }
-        val sessionListTimelineIds = sessionFromList?.timeline?.map { it.id }
-        assertEquals("Repository sessions flow must order messages by createdAt ASC, id ASC", expected, sessionListTimelineIds)
+        assertEquals("Repository sessions flow projection must report message count", 3, sessionFromList?.messageCount)
     }
 }

@@ -143,4 +143,9 @@ class ChatViewModel(
             sessionRepo.dismissClarify(hostId, req.requestId, req.promptType, req.questionId)
         }
     }
+
+    override fun onCleared() {
+        super.onCleared()
+        sessionRepo.releaseSession(sessionId)
+    }
 }
