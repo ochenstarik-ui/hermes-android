@@ -114,12 +114,15 @@ class UnifiedSessionRepositoryTest {
 
         // Stream start event
         val msgStart = buildJsonObject {
+            put("jsonrpc", "2.0")
             put("method", "event")
             put("params", buildJsonObject {
-                put("event", "message.start")
+                put("type", "message.start")
                 put("session_id", "rt_stream_1")
-                put("message_id", "msg_stream_1")
-                put("role", "assistant")
+                put("payload", buildJsonObject {
+                    put("message_id", "msg_stream_1")
+                    put("role", "assistant")
+                })
             })
         }
         runtimeA?.gatewayClient?.handleIncomingMessage(msgStart.toString())
@@ -127,12 +130,15 @@ class UnifiedSessionRepositoryTest {
 
         // Stream delta 1
         val msgDelta1 = buildJsonObject {
+            put("jsonrpc", "2.0")
             put("method", "event")
             put("params", buildJsonObject {
-                put("event", "message.delta")
+                put("type", "message.delta")
                 put("session_id", "rt_stream_1")
-                put("message_id", "msg_stream_1")
-                put("delta", "Hello ")
+                put("payload", buildJsonObject {
+                    put("message_id", "msg_stream_1")
+                    put("delta", "Hello ")
+                })
             })
         }
         runtimeA?.gatewayClient?.handleIncomingMessage(msgDelta1.toString())
@@ -140,12 +146,15 @@ class UnifiedSessionRepositoryTest {
 
         // Stream delta 2
         val msgDelta2 = buildJsonObject {
+            put("jsonrpc", "2.0")
             put("method", "event")
             put("params", buildJsonObject {
-                put("event", "message.delta")
+                put("type", "message.delta")
                 put("session_id", "rt_stream_1")
-                put("message_id", "msg_stream_1")
-                put("delta", "from Multi-Hermes!")
+                put("payload", buildJsonObject {
+                    put("message_id", "msg_stream_1")
+                    put("delta", "from Multi-Hermes!")
+                })
             })
         }
         runtimeA?.gatewayClient?.handleIncomingMessage(msgDelta2.toString())
@@ -153,12 +162,15 @@ class UnifiedSessionRepositoryTest {
 
         // Stream complete
         val msgComplete = buildJsonObject {
+            put("jsonrpc", "2.0")
             put("method", "event")
             put("params", buildJsonObject {
-                put("event", "message.complete")
+                put("type", "message.complete")
                 put("session_id", "rt_stream_1")
-                put("message_id", "msg_stream_1")
-                put("content", "Hello from Multi-Hermes!")
+                put("payload", buildJsonObject {
+                    put("message_id", "msg_stream_1")
+                    put("content", "Hello from Multi-Hermes!")
+                })
             })
         }
         runtimeA?.gatewayClient?.handleIncomingMessage(msgComplete.toString())
@@ -201,12 +213,15 @@ class UnifiedSessionRepositoryTest {
 
         // Host A starts long tool operation
         val toolStart = buildJsonObject {
+            put("jsonrpc", "2.0")
             put("method", "event")
             put("params", buildJsonObject {
-                put("event", "tool.start")
+                put("type", "tool.start")
                 put("session_id", "rt_bg_1")
-                put("tool_id", "tool_bg_1")
-                put("name", "heavy_build_task")
+                put("payload", buildJsonObject {
+                    put("tool_id", "tool_bg_1")
+                    put("name", "heavy_build_task")
+                })
             })
         }
         runtimeA?.gatewayClient?.handleIncomingMessage(toolStart.toString())
@@ -218,13 +233,16 @@ class UnifiedSessionRepositoryTest {
 
         // Host A finishes tool in background
         val toolComplete = buildJsonObject {
+            put("jsonrpc", "2.0")
             put("method", "event")
             put("params", buildJsonObject {
-                put("event", "tool.complete")
+                put("type", "tool.complete")
                 put("session_id", "rt_bg_1")
-                put("tool_id", "tool_bg_1")
-                put("result", "Build successful in 42s")
-                put("is_error", false)
+                put("payload", buildJsonObject {
+                    put("tool_id", "tool_bg_1")
+                    put("result", "Build successful in 42s")
+                    put("is_error", false)
+                })
             })
         }
         runtimeA?.gatewayClient?.handleIncomingMessage(toolComplete.toString())

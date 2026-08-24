@@ -89,13 +89,16 @@ class ApprovalRoutingTest {
 
         // Simulate incoming approval request with specific runtime session ID
         val prodEventJson = buildJsonObject {
+            put("jsonrpc", "2.0")
             put("method", "event")
             put("params", buildJsonObject {
-                put("event", "approval.request")
-                put("request_id", "req_prod_1")
-                put("session_key", "runtime_session_prod_99")
-                put("command", "systemctl restart nginx")
-                put("description", "Restart web server")
+                put("type", "approval.request")
+                put("session_id", "runtime_session_prod_99")
+                put("payload", buildJsonObject {
+                    put("request_id", "req_prod_1")
+                    put("command", "systemctl restart nginx")
+                    put("description", "Restart web server")
+                })
             })
         }
         runtime1?.gatewayClient?.handleIncomingMessage(prodEventJson.toString())
@@ -135,7 +138,7 @@ class ApprovalRoutingTest {
                     path.startsWith("/api/ws") || path.startsWith("/ws") -> {
                         MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                             override fun onOpen(webSocket: WebSocket, response: Response) {
-                                webSocket.send("""{"event":"gateway.ready","data":{"version":"1.0.0"}}""")
+                                webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
                             }
 
                             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -178,12 +181,15 @@ class ApprovalRoutingTest {
 
         // Incoming approval
         val prodEventJson = buildJsonObject {
+            put("jsonrpc", "2.0")
             put("method", "event")
             put("params", buildJsonObject {
-                put("event", "approval.request")
-                put("request_id", "req_prod_1")
+                put("type", "approval.request")
                 put("session_id", "runtime_session_prod_99")
-                put("command", "systemctl restart nginx")
+                put("payload", buildJsonObject {
+                    put("request_id", "req_prod_1")
+                    put("command", "systemctl restart nginx")
+                })
             })
         }
         runtime1.gatewayClient.handleIncomingMessage(prodEventJson.toString())

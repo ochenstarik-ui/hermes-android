@@ -44,7 +44,7 @@ class HermesConnectionManager(
     private val _activeHostId = MutableStateFlow<HermesHostId?>(null)
     val activeHostId: StateFlow<HermesHostId?> = _activeHostId.asStateFlow()
 
-    private val _allEvents = MutableSharedFlow<HostGatewayEvent>(extraBufferCapacity = 128)
+    private val _allEvents = MutableSharedFlow<HostGatewayEvent>(replay = 1, extraBufferCapacity = 128)
     val allEvents: SharedFlow<HostGatewayEvent> = _allEvents.asSharedFlow()
 
     init {

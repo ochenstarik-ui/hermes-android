@@ -4,6 +4,7 @@ import app.hermes.mobile.core.model.CreateSessionResult
 import app.hermes.mobile.core.model.DurableSessionId
 import app.hermes.mobile.core.model.GatewayEvent
 import app.hermes.mobile.core.model.JsonRpcError
+import app.hermes.mobile.core.model.JsonRpcException
 import app.hermes.mobile.core.model.JsonRpcRequest
 import app.hermes.mobile.core.model.JsonRpcResponse
 import app.hermes.mobile.core.model.PromptSubmitResult
@@ -76,7 +77,7 @@ class JsonRpcGatewayClient(
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    private val _events = MutableSharedFlow<GatewayEvent>(extraBufferCapacity = 64)
+    private val _events = MutableSharedFlow<GatewayEvent>(replay = 1, extraBufferCapacity = 64)
     val events: SharedFlow<GatewayEvent> = _events.asSharedFlow()
 
     private fun nextId(): String = "a${reqCounter.incrementAndGet()}"
@@ -250,7 +251,7 @@ class JsonRpcGatewayClient(
         val params = buildJsonObject { put("limit", limit) }
         val response = sendRequest("session.list", params)
         if (response.error != null) {
-            throw IOException("RPC Error [${response.error.code}]: ${response.error.message}")
+            throw JsonRpcException(response.error.code, response.error.message, response.error.data)
         }
         val result = response.result ?: return emptyList()
 
@@ -294,7 +295,7 @@ class JsonRpcGatewayClient(
         }
         val response = sendRequest("session.create", params)
         if (response.error != null) {
-            throw IOException("RPC Error [${response.error.code}]: ${response.error.message}")
+            throw JsonRpcException(response.error.code, response.error.message, response.error.data)
         }
         val result = response.result as? JsonObject
             ?: throw IOException("Invalid response format for session.create")
@@ -324,7 +325,7 @@ class JsonRpcGatewayClient(
         }
         val response = sendRequest("session.resume", params)
         if (response.error != null) {
-            throw IOException("RPC Error [${response.error.code}]: ${response.error.message}")
+            throw JsonRpcException(response.error.code, response.error.message, response.error.data)
         }
         val result = response.result as? JsonObject
             ?: throw IOException("Invalid response format for session.resume")
@@ -352,7 +353,7 @@ class JsonRpcGatewayClient(
         }
         val response = sendRequest("prompt.submit", params)
         if (response.error != null) {
-            throw IOException("RPC Error [${response.error.code}]: ${response.error.message}")
+            throw JsonRpcException(response.error.code, response.error.message, response.error.data)
         }
         val result = response.result as? JsonObject
         val turnId = result?.get("turn_id")?.jsonPrimitive?.content

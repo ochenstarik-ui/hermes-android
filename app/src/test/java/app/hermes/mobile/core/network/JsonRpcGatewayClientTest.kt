@@ -47,7 +47,7 @@ class JsonRpcGatewayClientTest {
             MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     serverWebSocket = webSocket
-                    webSocket.send("""{"event":"gateway.ready","data":{"version":"1.0.0","session_count":0}}""")
+                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0","session_count":0}}}""")
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
@@ -98,7 +98,7 @@ class JsonRpcGatewayClientTest {
         assertEquals(ConnectionState.Connecting, client.connectionState.value)
 
         // Send gateway.ready
-        serverWebSocket?.send("""{"event":"gateway.ready","data":{"version":"1.0.0","session_count":1}}""")
+        serverWebSocket?.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0","session_count":1}}}""")
 
         client.awaitGatewayReady(5000)
         assertEquals(ConnectionState.Connected, client.connectionState.value)
@@ -115,23 +115,26 @@ class JsonRpcGatewayClientTest {
             MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     serverWebSocket = webSocket
+                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
                     // Send an incoming server notification/event
-                    webSocket.send("""{"event":"message.delta","data":{"message_id":"m100","delta":"Streaming token"}}""")
+                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"message.delta","session_id":"rt_test","payload":{"message_id":"m100","delta":"Streaming token"}}}""")
                 }
             })
         )
 
         val wsUrl = "ws://${server.hostName}:${server.port}/api/ws"
         client.connect(wsUrl, allowCleartext = true)
+        client.awaitGatewayReady(5000)
 
         val event = withTimeout(5000) {
-            client.events.first()
+            client.events.first { it is GatewayEvent.MessageDeltaEvent }
         }
 
         assertTrue(event is GatewayEvent.MessageDeltaEvent)
         val deltaEvent = event as GatewayEvent.MessageDeltaEvent
         assertEquals("m100", deltaEvent.messageId)
         assertEquals("Streaming token", deltaEvent.delta)
+        assertEquals("rt_test", deltaEvent.sessionId)
 
         serverWebSocket?.close(1000, "done")
         client.disconnect()
@@ -146,7 +149,7 @@ class JsonRpcGatewayClientTest {
             MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     serverWebSocket = webSocket
-                    webSocket.send("""{"event":"gateway.ready","data":{"version":"1.0.0","session_count":0}}""")
+                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0","session_count":0}}}""")
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {

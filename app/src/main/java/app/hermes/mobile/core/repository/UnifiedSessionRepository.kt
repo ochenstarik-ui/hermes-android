@@ -44,8 +44,8 @@ class UnifiedSessionRepository(
     private val _activeClarify = MutableStateFlow<HostAttributedClarify?>(null)
     val activeClarify: StateFlow<HostAttributedClarify?> = _activeClarify.asStateFlow()
 
-    // Mapping from runtimeSessionId to (sessionId, hostId)
-    private val runtimeToSessionMap = ConcurrentHashMap<String, Pair<UnifiedSessionId, HermesHostId>>()
+    // Mapping from (hostId, runtimeSessionId) to sessionId
+    private val runtimeToSessionMap = ConcurrentHashMap<Pair<HermesHostId, String>, UnifiedSessionId>()
 
     // In-memory active session messages cache for reactive streaming updates
     private val sessionMessagesState = ConcurrentHashMap<UnifiedSessionId, MutableStateFlow<List<UnifiedMessage>>>()
@@ -55,17 +55,6 @@ class UnifiedSessionRepository(
     private val sessionExecutingState = ConcurrentHashMap<UnifiedSessionId, MutableStateFlow<Boolean>>()
 
     init {
-        scope.launch {
-            sessions.collect { list ->
-                for (s in list) {
-                    for ((hId, b) in s.bindings) {
-                        if (b.runtimeSessionId.value.isNotEmpty()) {
-                            runtimeToSessionMap[b.runtimeSessionId.value] = Pair(s.id, hId)
-                        }
-                    }
-                }
-            }
-        }
         scope.launch {
             connectionManager.allEvents.collect { hostEvent ->
                 handleHostGatewayEvent(hostEvent)
@@ -142,12 +131,12 @@ class UnifiedSessionRepository(
         sessionMessagesState.remove(sessionId)
         sessionExecutingState.remove(sessionId)
         hostExecutingState.entries.removeIf { it.key.first == sessionId }
-        runtimeToSessionMap.entries.removeIf { it.value.first == sessionId }
+        runtimeToSessionMap.entries.removeIf { it.value == sessionId }
     }
 
     fun registerRuntimeBinding(sessionId: UnifiedSessionId, hostId: HermesHostId, runtimeSessionId: RuntimeSessionId) {
         if (runtimeSessionId.value.isNotEmpty()) {
-            runtimeToSessionMap[runtimeSessionId.value] = Pair(sessionId, hostId)
+            runtimeToSessionMap[Pair(hostId, runtimeSessionId.value)] = sessionId
         }
     }
 
@@ -175,21 +164,26 @@ class UnifiedSessionRepository(
                 syncedAt = null
             )
             sessionDao.insertOrUpdateBinding(binding.toEntity(sessionId.value))
-            runtimeToSessionMap[createRes.runtimeId.value] = Pair(sessionId, targetHostId)
+            runtimeToSessionMap[Pair(targetHostId, createRes.runtimeId.value)] = sessionId
             return binding
         }
 
         // We have an existing durableSessionId.
-        // Check if current runtimeSessionId is already registered and valid, or if we need to resume
+        // Check if current runtimeSessionId is already registered and valid in memory in the current process
         val currentRuntimeId = binding.runtimeSessionId.value
-        val isRegistered = currentRuntimeId.isNotEmpty() && runtimeToSessionMap.containsKey(currentRuntimeId)
+        val isRegistered = currentRuntimeId.isNotEmpty() && runtimeToSessionMap.containsKey(Pair(targetHostId, currentRuntimeId))
 
         if (!isRegistered || binding.state == BindingState.NOT_CREATED || binding.state == BindingState.OFFLINE || binding.state == BindingState.ERROR) {
             val resumeRes = try {
                 runtime.gatewayClient.resumeSession(binding.durableSessionId, source = "android")
-            } catch (_: Exception) {
-                val createRes = runtime.gatewayClient.createSession(source = "android")
-                ResumeSessionResult(createRes.durableId, createRes.runtimeId)
+            } catch (e: Exception) {
+                if (isDefinitivelyMissingSession(e)) {
+                    val createRes = runtime.gatewayClient.createSession(source = "android")
+                    ResumeSessionResult(createRes.durableId, createRes.runtimeId)
+                } else {
+                    // For transient errors during resume (timeout, network, auth), throw without creating a new session or destroying the binding
+                    throw e
+                }
             }
             binding = binding.copy(
                 durableSessionId = resumeRes.durableId,
@@ -198,12 +192,29 @@ class UnifiedSessionRepository(
                 state = BindingState.READY
             )
             sessionDao.insertOrUpdateBinding(binding.toEntity(sessionId.value))
-            runtimeToSessionMap[resumeRes.runtimeId.value] = Pair(sessionId, targetHostId)
+            runtimeToSessionMap[Pair(targetHostId, resumeRes.runtimeId.value)] = sessionId
         } else {
-            runtimeToSessionMap[currentRuntimeId] = Pair(sessionId, targetHostId)
+            runtimeToSessionMap[Pair(targetHostId, currentRuntimeId)] = sessionId
         }
 
         return binding
+    }
+
+    private fun isDefinitivelyMissingSession(e: Throwable): Boolean {
+        if (e is JsonRpcException) {
+            if (e.code == 404 || e.code == -32004) return true
+            val msg = e.errorMessage.lowercase()
+            if (msg.contains("not found") || msg.contains("does not exist") ||
+                msg.contains("invalid session") || msg.contains("no such session") ||
+                msg.contains("session destroyed") || msg.contains("unrecoverable")) {
+                return true
+            }
+        }
+        val msg = e.message?.lowercase() ?: ""
+        if (msg.contains("404") || msg.contains("session not found") || msg.contains("session does not exist")) {
+            return true
+        }
+        return false
     }
 
     suspend fun sendPrompt(sessionId: UnifiedSessionId, text: String): String {
@@ -452,18 +463,11 @@ class UnifiedSessionRepository(
         messageId: String? = null,
         toolId: String? = null
     ): UnifiedSessionId? {
-        // 1. Exact match via runtimeSessionId in runtimeToSessionMap
+        // 1. Exact match via (hostId, runtimeSessionId) in runtimeToSessionMap
         if (!sessionIdFromEvent.isNullOrEmpty()) {
-            val mapped = runtimeToSessionMap[sessionIdFromEvent]
-            if (mapped != null && mapped.second == hostId) {
-                return mapped.first
-            }
-            for (session in sessions.value) {
-                val b = session.bindings[hostId]
-                if (b != null && b.runtimeSessionId.value == sessionIdFromEvent) {
-                    runtimeToSessionMap[sessionIdFromEvent] = Pair(session.id, hostId)
-                    return session.id
-                }
+            val mapped = runtimeToSessionMap[Pair(hostId, sessionIdFromEvent)]
+            if (mapped != null) {
+                return mapped
             }
         }
 

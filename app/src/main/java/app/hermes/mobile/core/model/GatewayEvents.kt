@@ -178,40 +178,31 @@ sealed class GatewayEvent {
         private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
         fun parse(root: JsonObject): GatewayEvent {
-            // Find event name and data container
-            var eventType = ""
-            var dataObj: JsonObject = root
+            val params = root["params"]?.jsonObject ?: root
 
-            if (root.containsKey("method")) {
-                val method = root["method"]?.jsonPrimitive?.content ?: ""
-                if (method == "event" && root.containsKey("params")) {
-                    val params = root["params"]?.jsonObject ?: JsonObject(emptyMap())
-                    eventType = params["event"]?.jsonPrimitive?.content
-                        ?: params["type"]?.jsonPrimitive?.content
-                        ?: ""
-                    dataObj = params["data"]?.jsonObject
-                        ?: params["payload"]?.jsonObject
-                        ?: params
-                } else if (method.isNotEmpty()) {
-                    eventType = method
-                    dataObj = root["params"]?.jsonObject ?: root
-                }
-            }
+            // 1. event type -> params["type"]
+            val eventType = params["type"]?.jsonPrimitive?.content
+                ?: params["event"]?.jsonPrimitive?.content
+                ?: root["type"]?.jsonPrimitive?.content
+                ?: root["event"]?.jsonPrimitive?.content
+                ?: ""
 
-            if (eventType.isEmpty()) {
-                eventType = root["event"]?.jsonPrimitive?.content
-                    ?: root["type"]?.jsonPrimitive?.content
-                    ?: ""
-                if (root.containsKey("data") && root["data"] is JsonObject) {
-                    dataObj = root["data"]!!.jsonObject
-                } else if (root.containsKey("payload") && root["payload"] is JsonObject) {
-                    dataObj = root["payload"]!!.jsonObject
-                }
-            }
+            // 2. runtime session -> params["session_id"] (Do NOT search inside payload)
+            val sessionId = params["session_id"]?.jsonPrimitive?.content
+                ?: params["session_key"]?.jsonPrimitive?.content
+                ?: root["session_id"]?.jsonPrimitive?.content
+                ?: root["session_key"]?.jsonPrimitive?.content
+
+            // 3. event body -> params["payload"]
+            val payloadObj = params["payload"]?.jsonObject
+                ?: params["data"]?.jsonObject
+                ?: root["payload"]?.jsonObject
+                ?: root["data"]?.jsonObject
+                ?: params
 
             fun getString(vararg keys: String): String {
                 for (k in keys) {
-                    val v = dataObj[k]?.jsonPrimitive?.content ?: root[k]?.jsonPrimitive?.content
+                    val v = payloadObj[k]?.jsonPrimitive?.content
                     if (v != null) return v
                 }
                 return ""
@@ -219,8 +210,7 @@ sealed class GatewayEvent {
 
             fun getNullableString(vararg keys: String): String? {
                 for (k in keys) {
-                    val el = dataObj[k] ?: root[k]
-                    val v = el?.jsonPrimitive?.content
+                    val v = payloadObj[k]?.jsonPrimitive?.content
                     if (v != null) return v
                 }
                 return null
@@ -228,7 +218,7 @@ sealed class GatewayEvent {
 
             fun getLong(vararg keys: String): Long {
                 for (k in keys) {
-                    val v = (dataObj[k]?.jsonPrimitive ?: root[k]?.jsonPrimitive)?.longOrNull
+                    val v = payloadObj[k]?.jsonPrimitive?.longOrNull
                     if (v != null) return v
                 }
                 return 0L
@@ -236,7 +226,7 @@ sealed class GatewayEvent {
 
             fun getInt(vararg keys: String): Int {
                 for (k in keys) {
-                    val v = (dataObj[k]?.jsonPrimitive ?: root[k]?.jsonPrimitive)?.intOrNull
+                    val v = payloadObj[k]?.jsonPrimitive?.intOrNull
                     if (v != null) return v
                 }
                 return 0
@@ -244,18 +234,16 @@ sealed class GatewayEvent {
 
             fun getBoolean(vararg keys: String): Boolean {
                 for (k in keys) {
-                    val v = (dataObj[k]?.jsonPrimitive ?: root[k]?.jsonPrimitive)?.booleanOrNull
+                    val v = payloadObj[k]?.jsonPrimitive?.booleanOrNull
                     if (v != null) return v
                 }
                 return false
             }
 
             fun getStringList(key: String): List<String> {
-                val array = (dataObj[key] ?: root[key]) as? JsonArray ?: return emptyList()
+                val array = payloadObj[key] as? JsonArray ?: return emptyList()
                 return array.mapNotNull { it.jsonPrimitive.content }
             }
-
-            val sessionKey = getNullableString("session_id", "session_key", "sessionKey", "sessionId")
 
             return when (eventType) {
                 "gateway.ready" -> GatewayReadyEvent(
@@ -266,69 +254,69 @@ sealed class GatewayEvent {
                 "message.start" -> MessageStartEvent(
                     messageId = getString("message_id", "id"),
                     role = getString("role").ifEmpty { "assistant" },
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "message.delta" -> MessageDeltaEvent(
                     messageId = getString("message_id", "id"),
                     delta = getString("delta", "text", "chunk"),
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "message.interim" -> MessageInterimEvent(
                     messageId = getString("message_id", "id"),
                     content = getString("content", "text"),
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "message.complete" -> MessageCompleteEvent(
                     messageId = getString("message_id", "id"),
                     content = getString("content", "text"),
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "thinking.delta" -> ThinkingDeltaEvent(
                     messageId = getString("message_id", "id"),
                     delta = getString("delta", "text", "chunk"),
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "reasoning.delta" -> ReasoningDeltaEvent(
                     messageId = getString("message_id", "id"),
                     delta = getString("delta", "text", "chunk"),
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "reasoning.available" -> ReasoningAvailableEvent(
                     messageId = getString("message_id", "id"),
                     reasoning = getString("reasoning", "content"),
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "tool.start" -> ToolStartEvent(
                     toolId = getString("tool_id", "id"),
                     name = getString("name", "tool_name"),
-                    input = dataObj["input"] ?: root["input"],
-                    sessionId = sessionKey,
+                    input = payloadObj["input"],
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "tool.progress" -> ToolProgressEvent(
                     toolId = getString("tool_id", "id"),
                     progress = getString("progress", "message"),
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "tool.generating" -> ToolGeneratingEvent(
                     toolId = getString("tool_id", "id"),
                     name = getString("name", "tool_name"),
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "tool.complete" -> ToolCompleteEvent(
                     toolId = getString("tool_id", "id"),
                     result = getString("result", "output"),
                     isError = getBoolean("is_error", "error"),
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "approval.request" -> {
@@ -338,8 +326,8 @@ sealed class GatewayEvent {
                         command = getNullableString("command"),
                         description = getNullableString("description", "prompt"),
                         choices = if (choices.isNotEmpty()) choices else listOf("once", "deny"),
-                        sessionKey = sessionKey,
-                        sessionId = sessionKey,
+                        sessionKey = sessionId,
+                        sessionId = sessionId,
                         rawPayload = root
                     )
                 }
@@ -348,32 +336,32 @@ sealed class GatewayEvent {
                     questionId = getNullableString("question_id", "questionId"),
                     question = getString("question", "prompt"),
                     promptType = ClarifyType.CLARIFY,
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "sudo.request" -> SudoRequestEvent(
                     requestId = getString("request_id", "id"),
                     question = getString("question", "prompt").ifEmpty { "Administrator password required:" },
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "secret.request" -> SecretRequestEvent(
                     requestId = getString("request_id", "id"),
                     question = getString("question", "prompt").ifEmpty { "Secret / Token required:" },
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "status.update" -> StatusUpdateEvent(
                     status = getString("status"),
                     message = getNullableString("message"),
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "session.usage" -> SessionUsageEvent(
                     inputTokens = getLong("input_tokens", "prompt_tokens"),
                     outputTokens = getLong("output_tokens", "completion_tokens"),
                     totalTokens = getLong("total_tokens"),
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "session.info" -> SessionInfoEvent(
@@ -384,24 +372,24 @@ sealed class GatewayEvent {
                         branch = getNullableString("branch"),
                         project = getNullableString("project")
                     ),
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "background.complete" -> BackgroundCompleteEvent(
                     taskId = getString("task_id", "id"),
                     result = getNullableString("result"),
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 "error" -> ErrorEvent(
                     code = getInt("code"),
                     message = getString("message").ifEmpty { "Unknown error" },
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
                 else -> UnknownGatewayEvent(
                     eventType = eventType.ifEmpty { "unknown" },
-                    sessionId = sessionKey,
+                    sessionId = sessionId,
                     rawPayload = root
                 )
             }

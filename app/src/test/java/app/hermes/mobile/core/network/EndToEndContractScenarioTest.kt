@@ -89,7 +89,7 @@ class EndToEndContractScenarioTest {
                                 serverWs = webSocket
                                 wsConnectedLatch.countDown()
                                 // Send gateway.ready
-                                webSocket.send("""{"event":"gateway.ready","data":{"version":"1.0.0","session_count":1}}""")
+                                webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0","session_count":1}}}""")
                             }
 
                             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -100,16 +100,16 @@ class EndToEndContractScenarioTest {
                                 } else if (text.contains("prompt.submit")) {
                                     webSocket.send("""{"jsonrpc":"2.0","id":"a3","result":{"turn_id":"turn_001"}}""")
                                     // Emit streaming events
-                                    webSocket.send("""{"event":"message.start","data":{"message_id":"msg_resp_1","role":"assistant"}}""")
-                                    webSocket.send("""{"event":"message.delta","data":{"message_id":"msg_resp_1","delta":"Sure, I can "}}""")
-                                    webSocket.send("""{"event":"message.delta","data":{"message_id":"msg_resp_1","delta":"run that tool."}}""")
-                                    webSocket.send("""{"event":"tool.start","data":{"tool_id":"t_exec","name":"run_command"}}""")
-                                    webSocket.send("""{"event":"tool.progress","data":{"tool_id":"t_exec","progress":"Executing ls..."}}""")
-                                    webSocket.send("""{"event":"tool.complete","data":{"tool_id":"t_exec","result":"file1.txt\nfile2.txt","is_error":false}}""")
-                                    webSocket.send("""{"event":"approval.request","data":{"request_id":"app_req_1","command":"git status","description":"Run git status","choices":["once","deny"]}}""")
+                                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"message.start","session_id":"runtime_202","payload":{"message_id":"msg_resp_1","role":"assistant"}}}""")
+                                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"message.delta","session_id":"runtime_202","payload":{"message_id":"msg_resp_1","delta":"Sure, I can "}}}""")
+                                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"message.delta","session_id":"runtime_202","payload":{"message_id":"msg_resp_1","delta":"run that tool."}}}""")
+                                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"tool.start","session_id":"runtime_202","payload":{"tool_id":"t_exec","name":"run_command"}}}""")
+                                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"tool.progress","session_id":"runtime_202","payload":{"tool_id":"t_exec","progress":"Executing ls..."}}}""")
+                                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"tool.complete","session_id":"runtime_202","payload":{"tool_id":"t_exec","result":"file1.txt\nfile2.txt","is_error":false}}}""")
+                                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"approval.request","session_id":"runtime_202","payload":{"request_id":"app_req_1","command":"git status","description":"Run git status","choices":["once","deny"]}}}""")
                                 } else if (text.contains("approval.respond")) {
                                     webSocket.send("""{"jsonrpc":"2.0","id":"a4","result":{"accepted":true}}""")
-                                    webSocket.send("""{"event":"message.complete","data":{"message_id":"msg_resp_1","content":"Sure, I can run that tool. Done!"}}""")
+                                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"message.complete","session_id":"runtime_202","payload":{"message_id":"msg_resp_1","content":"Sure, I can run that tool. Done!"}}}""")
                                 }
                             }
                         })
@@ -239,7 +239,7 @@ class EndToEndContractScenarioTest {
                     path.startsWith("/api/ws") || path.startsWith("/ws") -> {
                         MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                             override fun onOpen(webSocket: WebSocket, response: Response) {
-                                webSocket.send("""{"event":"gateway.ready","data":{"version":"1.0.0","session_count":0}}""")
+                                webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0","session_count":0}}}""")
                             }
                         })
                     }

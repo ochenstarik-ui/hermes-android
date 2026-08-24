@@ -110,43 +110,55 @@ class MultiHostConcurrencyExecutionTest {
         )
         testScheduler.advanceUntilIdle()
 
-        // Stream from Host A into Session 1
+        // Stream from Host A into Session 1 using upstream Hermes envelope
         val eventA1 = buildJsonObject {
+            put("jsonrpc", "2.0")
             put("method", "event")
             put("params", buildJsonObject {
-                put("event", "message.start")
+                put("type", "message.start")
                 put("session_id", "rt_win_1")
-                put("message_id", "msg_a_1")
-                put("role", "assistant")
+                put("payload", buildJsonObject {
+                    put("message_id", "msg_a_1")
+                    put("role", "assistant")
+                })
             })
         }
         val eventA2 = buildJsonObject {
+            put("jsonrpc", "2.0")
             put("method", "event")
             put("params", buildJsonObject {
-                put("event", "message.delta")
+                put("type", "message.delta")
                 put("session_id", "rt_win_1")
-                put("message_id", "msg_a_1")
-                put("delta", "Windows output chunk")
+                put("payload", buildJsonObject {
+                    put("message_id", "msg_a_1")
+                    put("delta", "Windows output chunk")
+                })
             })
         }
 
-        // Stream from Host B into Session 2 concurrently
+        // Stream from Host B into Session 2 concurrently using upstream Hermes envelope
         val eventB1 = buildJsonObject {
+            put("jsonrpc", "2.0")
             put("method", "event")
             put("params", buildJsonObject {
-                put("event", "message.start")
+                put("type", "message.start")
                 put("session_id", "rt_lin_1")
-                put("message_id", "msg_b_1")
-                put("role", "assistant")
+                put("payload", buildJsonObject {
+                    put("message_id", "msg_b_1")
+                    put("role", "assistant")
+                })
             })
         }
         val eventB2 = buildJsonObject {
+            put("jsonrpc", "2.0")
             put("method", "event")
             put("params", buildJsonObject {
-                put("event", "message.delta")
+                put("type", "message.delta")
                 put("session_id", "rt_lin_1")
-                put("message_id", "msg_b_1")
-                put("delta", "Linux output chunk")
+                put("payload", buildJsonObject {
+                    put("message_id", "msg_b_1")
+                    put("delta", "Linux output chunk")
+                })
             })
         }
 
@@ -215,12 +227,15 @@ class MultiHostConcurrencyExecutionTest {
         // Host A streams message
         runtimeA!!.gatewayClient.handleIncomingMessage(
             buildJsonObject {
+                put("jsonrpc", "2.0")
                 put("method", "event")
                 put("params", buildJsonObject {
-                    put("event", "message.start")
+                    put("type", "message.start")
                     put("session_id", "rt_win_dual")
-                    put("message_id", "msg_win")
-                    put("role", "assistant")
+                    put("payload", buildJsonObject {
+                        put("message_id", "msg_win")
+                        put("role", "assistant")
+                    })
                 })
             }.toString()
         )
@@ -228,12 +243,15 @@ class MultiHostConcurrencyExecutionTest {
 
         runtimeA.gatewayClient.handleIncomingMessage(
             buildJsonObject {
+                put("jsonrpc", "2.0")
                 put("method", "event")
                 put("params", buildJsonObject {
-                    put("event", "message.delta")
+                    put("type", "message.delta")
                     put("session_id", "rt_win_dual")
-                    put("message_id", "msg_win")
-                    put("delta", "Windows result")
+                    put("payload", buildJsonObject {
+                        put("message_id", "msg_win")
+                        put("delta", "Windows result")
+                    })
                 })
             }.toString()
         )
@@ -242,12 +260,15 @@ class MultiHostConcurrencyExecutionTest {
         // Host B concurrently streams tool
         runtimeB!!.gatewayClient.handleIncomingMessage(
             buildJsonObject {
+                put("jsonrpc", "2.0")
                 put("method", "event")
                 put("params", buildJsonObject {
-                    put("event", "tool.start")
+                    put("type", "tool.start")
                     put("session_id", "rt_lin_dual")
-                    put("tool_id", "tool_lin")
-                    put("name", "bash_exec")
+                    put("payload", buildJsonObject {
+                        put("tool_id", "tool_lin")
+                        put("name", "bash_exec")
+                    })
                 })
             }.toString()
         )
@@ -255,12 +276,15 @@ class MultiHostConcurrencyExecutionTest {
 
         runtimeB.gatewayClient.handleIncomingMessage(
             buildJsonObject {
+                put("jsonrpc", "2.0")
                 put("method", "event")
                 put("params", buildJsonObject {
-                    put("event", "tool.complete")
+                    put("type", "tool.complete")
                     put("session_id", "rt_lin_dual")
-                    put("tool_id", "tool_lin")
-                    put("result", "Linux command completed")
+                    put("payload", buildJsonObject {
+                        put("tool_id", "tool_lin")
+                        put("result", "Linux command completed")
+                    })
                 })
             }.toString()
         )
@@ -294,21 +318,27 @@ class MultiHostConcurrencyExecutionTest {
 
         // Both hosts have same requestId "req_shared_1"
         val approvalEventA = buildJsonObject {
+            put("jsonrpc", "2.0")
             put("method", "event")
             put("params", buildJsonObject {
-                put("event", "approval.request")
+                put("type", "approval.request")
                 put("session_id", "rt_win_shared")
-                put("request_id", "req_shared_1")
-                put("command", "powershell.exe -Command Get-Process")
+                put("payload", buildJsonObject {
+                    put("request_id", "req_shared_1")
+                    put("command", "powershell.exe -Command Get-Process")
+                })
             })
         }
         val approvalEventB = buildJsonObject {
+            put("jsonrpc", "2.0")
             put("method", "event")
             put("params", buildJsonObject {
-                put("event", "approval.request")
+                put("type", "approval.request")
                 put("session_id", "rt_lin_shared")
-                put("request_id", "req_shared_1")
-                put("command", "ps aux")
+                put("payload", buildJsonObject {
+                    put("request_id", "req_shared_1")
+                    put("command", "ps aux")
+                })
             })
         }
 
@@ -331,6 +361,68 @@ class MultiHostConcurrencyExecutionTest {
     }
 
     @Test
+    fun testTwoHermesHostsWithIdenticalRuntimeSessionIdDoNotCrossRouteEvents() = runTest(testDispatcher) {
+        val hostA = HermesHost(id = host1Id, displayName = "Windows PC", baseUrl = "http://pc:9119")
+        val hostB = HermesHost(id = host2Id, displayName = "Linux Server", baseUrl = "http://linux:9119")
+        connectionManager.addHost(hostA)
+        connectionManager.addHost(hostB)
+        testScheduler.advanceUntilIdle()
+
+        val session1 = sessionRepo.createUnifiedSession(title = "Host 1 Session", initialHostId = host1Id)
+        val session2 = sessionRepo.createUnifiedSession(title = "Host 2 Session", initialHostId = host2Id)
+        testScheduler.advanceUntilIdle()
+
+        val runtimeA = connectionManager.getRuntime(host1Id)!!
+        val runtimeB = connectionManager.getRuntime(host2Id)!!
+
+        // Both hosts independently return the EXACT SAME runtimeSessionId "s1"
+        sessionRepo.registerRuntimeBinding(session1.id, host1Id, RuntimeSessionId("s1"))
+        sessionRepo.registerRuntimeBinding(session2.id, host2Id, RuntimeSessionId("s1"))
+
+        // Host 1 sends delta for session_id "s1"
+        val eventHost1 = buildJsonObject {
+            put("jsonrpc", "2.0")
+            put("method", "event")
+            put("params", buildJsonObject {
+                put("type", "message.delta")
+                put("session_id", "s1")
+                put("payload", buildJsonObject {
+                    put("message_id", "m_shared")
+                    put("delta", "Chunk From Host 1")
+                })
+            })
+        }
+        // Host 2 sends delta for session_id "s1"
+        val eventHost2 = buildJsonObject {
+            put("jsonrpc", "2.0")
+            put("method", "event")
+            put("params", buildJsonObject {
+                put("type", "message.delta")
+                put("session_id", "s1")
+                put("payload", buildJsonObject {
+                    put("message_id", "m_shared")
+                    put("delta", "Chunk From Host 2")
+                })
+            })
+        }
+
+        runtimeA.gatewayClient.handleIncomingMessage(eventHost1.toString())
+        runtimeB.gatewayClient.handleIncomingMessage(eventHost2.toString())
+        testScheduler.advanceUntilIdle()
+
+        val session1Messages = sessionRepo.getSessionMessages(session1.id).value
+        val session2Messages = sessionRepo.getSessionMessages(session2.id).value
+
+        assertEquals(1, session1Messages.size)
+        assertEquals("Chunk From Host 1", session1Messages[0].content)
+        assertEquals(host1Id, session1Messages[0].hostId)
+
+        assertEquals(1, session2Messages.size)
+        assertEquals("Chunk From Host 2", session2Messages[0].content)
+        assertEquals(host2Id, session2Messages[0].hostId)
+    }
+
+    @Test
     fun testAppRestartRestoresBindingViaDurableId() = runBlocking(Dispatchers.Default) {
         val server = MockWebServer()
 
@@ -344,7 +436,7 @@ class MultiHostConcurrencyExecutionTest {
                     path.startsWith("/api/ws") || path.startsWith("/ws") -> {
                         MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                             override fun onOpen(webSocket: WebSocket, response: Response) {
-                                webSocket.send("""{"event":"gateway.ready","data":{"version":"1.0.0"}}""")
+                                webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
                             }
 
                             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -399,6 +491,9 @@ class MultiHostConcurrencyExecutionTest {
             scope = CoroutineScope(Dispatchers.Default)
         )
 
+        val host1 = HermesHost(id = host1Id, displayName = "Prod Server", baseUrl = wsUrl, allowCleartext = true, lastKnownStatus = HostStatus.ONLINE)
+        freshConnectionManager.addHost(host1)
+
         val runtime = freshConnectionManager.getRuntime(host1Id)
         assertNotNull(runtime)
         runtime!!.connect()
@@ -419,6 +514,105 @@ class MultiHostConcurrencyExecutionTest {
     }
 
     @Test
+    fun testAppRestartWithStateReadyCallsSessionResume() = runBlocking(Dispatchers.Default) {
+        val server = MockWebServer()
+        var sessionResumeCalled = false
+        var resumedDurableId = ""
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path ?: ""
+                return when {
+                    path == "/api/status" -> {
+                        MockResponse().setResponseCode(200).setBody("""{"status":"ok","auth_required":false,"version":"1.0.0"}""")
+                    }
+                    path.startsWith("/api/ws") || path.startsWith("/ws") -> {
+                        MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+                            override fun onOpen(webSocket: WebSocket, response: Response) {
+                                webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
+                            }
+
+                            override fun onMessage(webSocket: WebSocket, text: String) {
+                                if (text.contains("session.resume")) {
+                                    sessionResumeCalled = true
+                                    if (text.contains("valid_durable_888")) {
+                                        resumedDurableId = "valid_durable_888"
+                                    }
+                                    webSocket.send("""{"jsonrpc":"2.0","id":"a1","result":{"stored_session_id":"valid_durable_888","session_id":"fresh_runtime_777"}}""")
+                                } else if (text.contains("prompt.submit")) {
+                                    webSocket.send("""{"jsonrpc":"2.0","id":"a2","result":{"turn_id":"turn_ready_restart"}}""")
+                                }
+                            }
+                        })
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        server.start()
+        val wsUrl = server.url("").toString().removeSuffix("/")
+        val testHostDao = FakeHostDao()
+        val testSessionDao = FakeUnifiedSessionDao()
+        val testTokenVault = InMemoryTokenVault()
+
+        testHostDao.insertOrUpdateHost(HostEntity(id = host1Id.value, displayName = "Server", baseUrl = wsUrl, allowCleartext = true, lastKnownStatus = "ONLINE"))
+
+        val sessionId = UnifiedSessionId("session_ready_restart")
+        testSessionDao.insertSession(
+            UnifiedSessionEntity(
+                id = sessionId.value,
+                title = "Ready Restart Test",
+                activeHostId = host1Id.value
+            )
+        )
+        // Binding in Room has state = READY, but stale runtimeSessionId from previous process run
+        testSessionDao.insertOrUpdateBinding(
+            HostBindingEntity(
+                sessionId = sessionId.value,
+                hostId = host1Id.value,
+                durableSessionId = "valid_durable_888",
+                runtimeSessionId = "stale_dead_runtime_999",
+                state = BindingState.READY.name
+            )
+        )
+
+        // New process simulation
+        val freshConnectionManager = HermesConnectionManager(
+            hostDao = testHostDao,
+            tokenVault = testTokenVault,
+            scope = CoroutineScope(Dispatchers.Default)
+        )
+        val freshRepo = UnifiedSessionRepository(
+            connectionManager = freshConnectionManager,
+            sessionDao = testSessionDao,
+            scope = CoroutineScope(Dispatchers.Default)
+        )
+
+        val host1 = HermesHost(id = host1Id, displayName = "Server", baseUrl = wsUrl, allowCleartext = true, lastKnownStatus = HostStatus.ONLINE)
+        freshConnectionManager.addHost(host1)
+
+        val runtime = freshConnectionManager.getRuntime(host1Id)!!
+        runtime.connect()
+        runtime.gatewayClient.awaitGatewayReady(5000)
+
+        // Calling sendPrompt must trigger session.resume since in-memory attachment does not exist in new process
+        val turnId = freshRepo.sendPrompt(sessionId, "Hello after clean restart")
+        assertEquals("turn_ready_restart", turnId)
+
+        assertTrue("session.resume MUST be called even if persisted state was READY", sessionResumeCalled)
+        assertEquals("valid_durable_888", resumedDurableId)
+
+        val updatedBinding = testSessionDao.getBindingsForSession(sessionId.value).find { it.hostId == host1Id.value }
+        assertNotNull(updatedBinding)
+        assertEquals("valid_durable_888", updatedBinding?.durableSessionId)
+        assertEquals("fresh_runtime_777", updatedBinding?.runtimeSessionId)
+
+        runtime.disconnect()
+        server.shutdown()
+    }
+
+    @Test
     fun testHostReconnectMintsNewRuntimeId() = runBlocking(Dispatchers.Default) {
         val server = MockWebServer()
         var sessionCreated = false
@@ -433,7 +627,7 @@ class MultiHostConcurrencyExecutionTest {
                     path.startsWith("/api/ws") || path.startsWith("/ws") -> {
                         MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                             override fun onOpen(webSocket: WebSocket, response: Response) {
-                                webSocket.send("""{"event":"gateway.ready","data":{"version":"1.0.0"}}""")
+                                webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
                             }
 
                             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -510,13 +704,15 @@ class MultiHostConcurrencyExecutionTest {
                     path.startsWith("/api/ws") || path.startsWith("/ws") -> {
                         MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                             override fun onOpen(webSocket: WebSocket, response: Response) {
-                                webSocket.send("""{"event":"gateway.ready","data":{"version":"1.0.0"}}""")
+                                webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
                             }
 
                             override fun onMessage(webSocket: WebSocket, text: String) {
-                                if (text.contains("prompt.submit")) {
+                                if (text.contains("session.resume")) {
+                                    webSocket.send("""{"jsonrpc":"2.0","id":"a1","result":{"stored_session_id":"dur_fail_test","session_id":"rt_fail_test"}}""")
+                                } else if (text.contains("prompt.submit")) {
                                     // Fail prompt submission with an RPC error
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a1","error":{"code":-32000,"message":"Model overloaded"}}""")
+                                    webSocket.send("""{"jsonrpc":"2.0","id":"a2","error":{"code":-32000,"message":"Model overloaded"}}""")
                                 }
                             }
                         })
@@ -544,6 +740,9 @@ class MultiHostConcurrencyExecutionTest {
             sessionDao = testSessionDao,
             scope = CoroutineScope(Dispatchers.Default)
         )
+
+        val host1 = HermesHost(id = host1Id, displayName = "Server", baseUrl = wsUrl, allowCleartext = true, lastKnownStatus = HostStatus.ONLINE)
+        testConnectionManager.addHost(host1)
 
         val session = testRepo.createUnifiedSession(title = "Cursor Test", initialHostId = host1Id)
 
@@ -577,6 +776,195 @@ class MultiHostConcurrencyExecutionTest {
         val binding = testSessionDao.getBindingsForSession(session.id.value).find { it.hostId == host1Id.value }
         assertEquals("msg_baseline", binding?.syncedThroughMessageId)
         assertEquals(BindingState.ERROR.name, binding?.state)
+
+        runtime.disconnect()
+        server.shutdown()
+    }
+
+    @Test
+    fun testTransientResumeErrorDoesNotDestroyBindingOrCallCreate() = runBlocking(Dispatchers.Default) {
+        val server = MockWebServer()
+        var createCalled = false
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path ?: ""
+                return when {
+                    path == "/api/status" -> {
+                        MockResponse().setResponseCode(200).setBody("""{"status":"ok","auth_required":false,"version":"1.0.0"}""")
+                    }
+                    path.startsWith("/api/ws") || path.startsWith("/ws") -> {
+                        MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+                            override fun onOpen(webSocket: WebSocket, response: Response) {
+                                webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
+                            }
+
+                            override fun onMessage(webSocket: WebSocket, text: String) {
+                                if (text.contains("session.resume")) {
+                                    // Transient failure: 500 / -32000 Server overloaded
+                                    webSocket.send("""{"jsonrpc":"2.0","id":"a1","error":{"code":-32000,"message":"Transient server error"}}""")
+                                } else if (text.contains("session.create")) {
+                                    createCalled = true
+                                    webSocket.send("""{"jsonrpc":"2.0","id":"a2","result":{"stored_session_id":"dur_forbidden","session_id":"rt_forbidden"}}""")
+                                }
+                            }
+                        })
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        server.start()
+        val wsUrl = server.url("").toString().removeSuffix("/")
+        val testHostDao = FakeHostDao()
+        val testSessionDao = FakeUnifiedSessionDao()
+        val testTokenVault = InMemoryTokenVault()
+
+        testHostDao.insertOrUpdateHost(HostEntity(id = host1Id.value, displayName = "Server", baseUrl = wsUrl, allowCleartext = true, lastKnownStatus = "ONLINE"))
+
+        val sessionId = UnifiedSessionId("session_transient_test")
+        testSessionDao.insertSession(
+            UnifiedSessionEntity(
+                id = sessionId.value,
+                title = "Transient Resume Test",
+                activeHostId = host1Id.value
+            )
+        )
+        testSessionDao.insertOrUpdateBinding(
+            HostBindingEntity(
+                sessionId = sessionId.value,
+                hostId = host1Id.value,
+                durableSessionId = "dur_preserved_123",
+                runtimeSessionId = "rt_stale",
+                state = BindingState.READY.name
+            )
+        )
+
+        val testConnectionManager = HermesConnectionManager(
+            hostDao = testHostDao,
+            tokenVault = testTokenVault,
+            scope = CoroutineScope(Dispatchers.Default)
+        )
+        val testRepo = UnifiedSessionRepository(
+            connectionManager = testConnectionManager,
+            sessionDao = testSessionDao,
+            scope = CoroutineScope(Dispatchers.Default)
+        )
+
+        val host1 = HermesHost(id = host1Id, displayName = "Server", baseUrl = wsUrl, allowCleartext = true, lastKnownStatus = HostStatus.ONLINE)
+        testConnectionManager.addHost(host1)
+
+        val runtime = testConnectionManager.getRuntime(host1Id)!!
+        runtime.connect()
+        runtime.gatewayClient.awaitGatewayReady(5000)
+
+        var threw = false
+        try {
+            testRepo.ensureAttachedRuntimeSession(sessionId, host1Id, runtime)
+        } catch (_: Exception) {
+            threw = true
+        }
+
+        assertTrue("Expected transient resume error to throw", threw)
+        assertFalse("session.create MUST NOT be called on transient resume error", createCalled)
+
+        // Verify binding was not destroyed
+        val binding = testSessionDao.getBindingsForSession(sessionId.value).find { it.hostId == host1Id.value }
+        assertEquals("dur_preserved_123", binding?.durableSessionId)
+
+        runtime.disconnect()
+        server.shutdown()
+    }
+
+    @Test
+    fun testUnrecoverableResumeErrorRecreatesSession() = runBlocking(Dispatchers.Default) {
+        val server = MockWebServer()
+        var createCalled = false
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path ?: ""
+                return when {
+                    path == "/api/status" -> {
+                        MockResponse().setResponseCode(200).setBody("""{"status":"ok","auth_required":false,"version":"1.0.0"}""")
+                    }
+                    path.startsWith("/api/ws") || path.startsWith("/ws") -> {
+                        MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+                            override fun onOpen(webSocket: WebSocket, response: Response) {
+                                webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
+                            }
+
+                            override fun onMessage(webSocket: WebSocket, text: String) {
+                                if (text.contains("session.resume")) {
+                                    // Definitively unrecoverable: 404 Session not found
+                                    webSocket.send("""{"jsonrpc":"2.0","id":"a1","error":{"code":404,"message":"Session not found"}}""")
+                                } else if (text.contains("session.create")) {
+                                    createCalled = true
+                                    webSocket.send("""{"jsonrpc":"2.0","id":"a2","result":{"stored_session_id":"dur_new_fresh_999","session_id":"rt_new_fresh_999"}}""")
+                                }
+                            }
+                        })
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        server.start()
+        val wsUrl = server.url("").toString().removeSuffix("/")
+        val testHostDao = FakeHostDao()
+        val testSessionDao = FakeUnifiedSessionDao()
+        val testTokenVault = InMemoryTokenVault()
+
+        testHostDao.insertOrUpdateHost(HostEntity(id = host1Id.value, displayName = "Server", baseUrl = wsUrl, allowCleartext = true, lastKnownStatus = "ONLINE"))
+
+        val sessionId = UnifiedSessionId("session_unrecoverable_test")
+        testSessionDao.insertSession(
+            UnifiedSessionEntity(
+                id = sessionId.value,
+                title = "Unrecoverable Resume Test",
+                activeHostId = host1Id.value
+            )
+        )
+        testSessionDao.insertOrUpdateBinding(
+            HostBindingEntity(
+                sessionId = sessionId.value,
+                hostId = host1Id.value,
+                durableSessionId = "dur_dead_deleted",
+                runtimeSessionId = "rt_dead",
+                state = BindingState.READY.name
+            )
+        )
+
+        val testConnectionManager = HermesConnectionManager(
+            hostDao = testHostDao,
+            tokenVault = testTokenVault,
+            scope = CoroutineScope(Dispatchers.Default)
+        )
+        val testRepo = UnifiedSessionRepository(
+            connectionManager = testConnectionManager,
+            sessionDao = testSessionDao,
+            scope = CoroutineScope(Dispatchers.Default)
+        )
+
+        val host1 = HermesHost(id = host1Id, displayName = "Server", baseUrl = wsUrl, allowCleartext = true, lastKnownStatus = HostStatus.ONLINE)
+        testConnectionManager.addHost(host1)
+
+        val runtime = testConnectionManager.getRuntime(host1Id)!!
+        runtime.connect()
+        runtime.gatewayClient.awaitGatewayReady(5000)
+
+        val attachedBinding = testRepo.ensureAttachedRuntimeSession(sessionId, host1Id, runtime)
+
+        assertTrue("session.create MUST be called on unrecoverable 404 resume error", createCalled)
+        assertEquals(DurableSessionId("dur_new_fresh_999"), attachedBinding.durableSessionId)
+        assertEquals(RuntimeSessionId("rt_new_fresh_999"), attachedBinding.runtimeSessionId)
+
+        // Verify Room DB binding was updated
+        val binding = testSessionDao.getBindingsForSession(sessionId.value).find { it.hostId == host1Id.value }
+        assertEquals("dur_new_fresh_999", binding?.durableSessionId)
+        assertEquals("rt_new_fresh_999", binding?.runtimeSessionId)
 
         runtime.disconnect()
         server.shutdown()
@@ -619,24 +1007,30 @@ class MultiHostConcurrencyExecutionTest {
         )
         testScheduler.advanceUntilIdle()
 
-        // Start execution on both hosts
+        // Start execution on both hosts using upstream Hermes envelope
         runtimeA!!.gatewayClient.handleIncomingMessage(
             buildJsonObject {
+                put("jsonrpc", "2.0")
                 put("method", "event")
                 put("params", buildJsonObject {
-                    put("event", "message.start")
+                    put("type", "message.start")
                     put("session_id", "rt_a")
-                    put("message_id", "msg_a")
+                    put("payload", buildJsonObject {
+                        put("message_id", "msg_a")
+                    })
                 })
             }.toString()
         )
         runtimeB!!.gatewayClient.handleIncomingMessage(
             buildJsonObject {
+                put("jsonrpc", "2.0")
                 put("method", "event")
                 put("params", buildJsonObject {
-                    put("event", "message.start")
+                    put("type", "message.start")
                     put("session_id", "rt_b")
-                    put("message_id", "msg_b")
+                    put("payload", buildJsonObject {
+                        put("message_id", "msg_b")
+                    })
                 })
             }.toString()
         )

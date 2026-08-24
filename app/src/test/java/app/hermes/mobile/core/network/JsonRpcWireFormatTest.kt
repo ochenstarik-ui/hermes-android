@@ -82,81 +82,309 @@ class JsonRpcWireFormatTest {
     @Test
     fun testAllGatewayEventParsers() {
         // 1. Gateway Ready
-        val readyJson = json.decodeFromString<JsonObject>("""{"event":"gateway.ready","data":{"version":"1.0.0","session_count":3}}""")
+        val readyJson = json.decodeFromString<JsonObject>("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0","session_count":3}}}""")
         val readyEvent = GatewayEvent.parse(readyJson) as GatewayEvent.GatewayReadyEvent
         assertEquals("1.0.0", readyEvent.version)
         assertEquals(3, readyEvent.sessionCount)
 
         // 2. Message Start
-        val msgStartJson = json.decodeFromString<JsonObject>("""{"event":"message.start","data":{"message_id":"msg_1","role":"assistant"}}""")
+        val msgStartJson = json.decodeFromString<JsonObject>("""{"jsonrpc":"2.0","method":"event","params":{"type":"message.start","session_id":"rt_test","payload":{"message_id":"msg_1","role":"assistant"}}}""")
         val msgStart = GatewayEvent.parse(msgStartJson) as GatewayEvent.MessageStartEvent
         assertEquals("msg_1", msgStart.messageId)
         assertEquals("assistant", msgStart.role)
+        assertEquals("rt_test", msgStart.sessionId)
 
         // 3. Message Delta
-        val msgDeltaJson = json.decodeFromString<JsonObject>("""{"event":"message.delta","data":{"message_id":"msg_1","delta":"Hello world"}}""")
+        val msgDeltaJson = json.decodeFromString<JsonObject>("""{"jsonrpc":"2.0","method":"event","params":{"type":"message.delta","session_id":"rt_test","payload":{"message_id":"msg_1","delta":"Hello world"}}}""")
         val msgDelta = GatewayEvent.parse(msgDeltaJson) as GatewayEvent.MessageDeltaEvent
         assertEquals("msg_1", msgDelta.messageId)
         assertEquals("Hello world", msgDelta.delta)
+        assertEquals("rt_test", msgDelta.sessionId)
 
         // 4. Message Complete
-        val msgCompleteJson = json.decodeFromString<JsonObject>("""{"event":"message.complete","data":{"message_id":"msg_1","content":"Final answer"}}""")
+        val msgCompleteJson = json.decodeFromString<JsonObject>("""{"jsonrpc":"2.0","method":"event","params":{"type":"message.complete","session_id":"rt_test","payload":{"message_id":"msg_1","content":"Final answer"}}}""")
         val msgComplete = GatewayEvent.parse(msgCompleteJson) as GatewayEvent.MessageCompleteEvent
         assertEquals("msg_1", msgComplete.messageId)
         assertEquals("Final answer", msgComplete.content)
+        assertEquals("rt_test", msgComplete.sessionId)
 
         // 5. Thinking Delta
-        val thinkJson = json.decodeFromString<JsonObject>("""{"event":"thinking.delta","data":{"message_id":"msg_1","delta":"Analyzing requirements..."}}""")
+        val thinkJson = json.decodeFromString<JsonObject>("""{"jsonrpc":"2.0","method":"event","params":{"type":"thinking.delta","session_id":"rt_test","payload":{"message_id":"msg_1","delta":"Analyzing requirements..."}}}""")
         val think = GatewayEvent.parse(thinkJson) as GatewayEvent.ThinkingDeltaEvent
         assertEquals("Analyzing requirements...", think.delta)
+        assertEquals("rt_test", think.sessionId)
 
         // 6. Tool Lifecycle
-        val toolStartJson = json.decodeFromString<JsonObject>("""{"event":"tool.start","data":{"tool_id":"t1","name":"exec_command"}}""")
+        val toolStartJson = json.decodeFromString<JsonObject>("""{"jsonrpc":"2.0","method":"event","params":{"type":"tool.start","session_id":"rt_test","payload":{"tool_id":"t1","name":"exec_command"}}}""")
         val toolStart = GatewayEvent.parse(toolStartJson) as GatewayEvent.ToolStartEvent
         assertEquals("t1", toolStart.toolId)
         assertEquals("exec_command", toolStart.name)
+        assertEquals("rt_test", toolStart.sessionId)
 
-        val toolProgressJson = json.decodeFromString<JsonObject>("""{"event":"tool.progress","data":{"tool_id":"t1","progress":"Running build..."}}""")
+        val toolProgressJson = json.decodeFromString<JsonObject>("""{"jsonrpc":"2.0","method":"event","params":{"type":"tool.progress","session_id":"rt_test","payload":{"tool_id":"t1","progress":"Running build..."}}}""")
         val toolProgress = GatewayEvent.parse(toolProgressJson) as GatewayEvent.ToolProgressEvent
         assertEquals("Running build...", toolProgress.progress)
+        assertEquals("rt_test", toolProgress.sessionId)
 
-        val toolCompleteJson = json.decodeFromString<JsonObject>("""{"event":"tool.complete","data":{"tool_id":"t1","result":"Success","is_error":false}}""")
+        val toolCompleteJson = json.decodeFromString<JsonObject>("""{"jsonrpc":"2.0","method":"event","params":{"type":"tool.complete","session_id":"rt_test","payload":{"tool_id":"t1","result":"Success","is_error":false}}}""")
         val toolComplete = GatewayEvent.parse(toolCompleteJson) as GatewayEvent.ToolCompleteEvent
         assertEquals("Success", toolComplete.result)
         assertEquals(false, toolComplete.isError)
+        assertEquals("rt_test", toolComplete.sessionId)
 
         // 7. Approval Request
-        val approvalJson = json.decodeFromString<JsonObject>("""{"event":"approval.request","data":{"request_id":"req_app","command":"rm -rf /tmp/cache","description":"Clear cache directory","choices":["once","deny"]}}""")
+        val approvalJson = json.decodeFromString<JsonObject>("""{"jsonrpc":"2.0","method":"event","params":{"type":"approval.request","session_id":"rt_test","payload":{"request_id":"req_app","command":"rm -rf /tmp/cache","description":"Clear cache directory","choices":["once","deny"]}}}""")
         val approval = GatewayEvent.parse(approvalJson) as GatewayEvent.ApprovalRequestEvent
         assertEquals("req_app", approval.requestId)
         assertEquals("rm -rf /tmp/cache", approval.command)
         assertEquals(2, approval.choices.size)
+        assertEquals("rt_test", approval.sessionId)
 
         // 8. Clarify, Sudo, Secret
-        val clarifyJson = json.decodeFromString<JsonObject>("""{"event":"clarify.request","data":{"request_id":"c1","question":"Which port?"}}""")
+        val clarifyJson = json.decodeFromString<JsonObject>("""{"jsonrpc":"2.0","method":"event","params":{"type":"clarify.request","session_id":"rt_test","payload":{"request_id":"c1","question":"Which port?"}}}""")
         val clarify = GatewayEvent.parse(clarifyJson) as GatewayEvent.ClarifyRequestEvent
         assertEquals("Which port?", clarify.question)
         assertEquals(ClarifyType.CLARIFY, clarify.promptType)
+        assertEquals("rt_test", clarify.sessionId)
 
-        val sudoJson = json.decodeFromString<JsonObject>("""{"event":"sudo.request","data":{"request_id":"s1","question":"Root password required:"}}""")
+        val sudoJson = json.decodeFromString<JsonObject>("""{"jsonrpc":"2.0","method":"event","params":{"type":"sudo.request","session_id":"rt_test","payload":{"request_id":"s1","question":"Root password required:"}}}""")
         val sudo = GatewayEvent.parse(sudoJson) as GatewayEvent.SudoRequestEvent
         assertEquals("Root password required:", sudo.question)
+        assertEquals("rt_test", sudo.sessionId)
 
-        val secretJson = json.decodeFromString<JsonObject>("""{"event":"secret.request","data":{"request_id":"sec1","question":"OpenAI API Key:"}}""")
+        val secretJson = json.decodeFromString<JsonObject>("""{"jsonrpc":"2.0","method":"event","params":{"type":"secret.request","session_id":"rt_test","payload":{"request_id":"sec1","question":"OpenAI API Key:"}}}""")
         val secret = GatewayEvent.parse(secretJson) as GatewayEvent.SecretRequestEvent
         assertEquals("OpenAI API Key:", secret.question)
+        assertEquals("rt_test", secret.sessionId)
 
         // 9. Session Info & Usage
-        val infoJson = json.decodeFromString<JsonObject>("""{"event":"session.info","data":{"model":"claude-3-5-sonnet","provider":"anthropic","branch":"main"}}""")
+        val infoJson = json.decodeFromString<JsonObject>("""{"jsonrpc":"2.0","method":"event","params":{"type":"session.info","session_id":"rt_test","payload":{"model":"claude-3-5-sonnet","provider":"anthropic","branch":"main"}}}""")
         val info = GatewayEvent.parse(infoJson) as GatewayEvent.SessionInfoEvent
         assertEquals("claude-3-5-sonnet", info.info.model)
         assertEquals("main", info.info.branch)
+        assertEquals("rt_test", info.sessionId)
 
-        val usageJson = json.decodeFromString<JsonObject>("""{"event":"session.usage","data":{"input_tokens":1200,"output_tokens":350,"total_tokens":1550}}""")
+        val usageJson = json.decodeFromString<JsonObject>("""{"jsonrpc":"2.0","method":"event","params":{"type":"session.usage","session_id":"rt_test","payload":{"input_tokens":1200,"output_tokens":350,"total_tokens":1550}}}""")
         val usage = GatewayEvent.parse(usageJson) as GatewayEvent.SessionUsageEvent
         assertEquals(1200L, usage.inputTokens)
         assertEquals(350L, usage.outputTokens)
         assertEquals(1550L, usage.totalTokens)
+        assertEquals("rt_test", usage.sessionId)
+    }
+
+    @Test
+    fun testUpstreamHermesContractMessageStart() {
+        val raw = """
+            {
+                "jsonrpc": "2.0",
+                "method": "event",
+                "params": {
+                    "type": "message.start",
+                    "session_id": "rt-session-001",
+                    "payload": {
+                        "message_id": "msg-start-001",
+                        "role": "assistant"
+                    }
+                }
+            }
+        """.trimIndent()
+        val root = json.decodeFromString<JsonObject>(raw)
+        val event = GatewayEvent.parse(root)
+        assertTrue(event is GatewayEvent.MessageStartEvent)
+        val startEvent = event as GatewayEvent.MessageStartEvent
+        assertEquals("msg-start-001", startEvent.messageId)
+        assertEquals("assistant", startEvent.role)
+        assertEquals("rt-session-001", startEvent.sessionId)
+    }
+
+    @Test
+    fun testUpstreamHermesContractMessageDelta() {
+        val raw = """
+            {
+                "jsonrpc": "2.0",
+                "method": "event",
+                "params": {
+                    "type": "message.delta",
+                    "session_id": "rt-session-001",
+                    "payload": {
+                        "message_id": "msg-delta-001",
+                        "delta": "Hello from Hermes"
+                    }
+                }
+            }
+        """.trimIndent()
+        val root = json.decodeFromString<JsonObject>(raw)
+        val event = GatewayEvent.parse(root)
+        assertTrue(event is GatewayEvent.MessageDeltaEvent)
+        val deltaEvent = event as GatewayEvent.MessageDeltaEvent
+        assertEquals("msg-delta-001", deltaEvent.messageId)
+        assertEquals("Hello from Hermes", deltaEvent.delta)
+        assertEquals("rt-session-001", deltaEvent.sessionId)
+    }
+
+    @Test
+    fun testUpstreamHermesContractMessageComplete() {
+        val raw = """
+            {
+                "jsonrpc": "2.0",
+                "method": "event",
+                "params": {
+                    "type": "message.complete",
+                    "session_id": "rt-session-001",
+                    "payload": {
+                        "message_id": "msg-complete-001",
+                        "content": "Execution completed successfully."
+                    }
+                }
+            }
+        """.trimIndent()
+        val root = json.decodeFromString<JsonObject>(raw)
+        val event = GatewayEvent.parse(root)
+        assertTrue(event is GatewayEvent.MessageCompleteEvent)
+        val completeEvent = event as GatewayEvent.MessageCompleteEvent
+        assertEquals("msg-complete-001", completeEvent.messageId)
+        assertEquals("Execution completed successfully.", completeEvent.content)
+        assertEquals("rt-session-001", completeEvent.sessionId)
+    }
+
+    @Test
+    fun testUpstreamHermesContractToolStart() {
+        val raw = """
+            {
+                "jsonrpc": "2.0",
+                "method": "event",
+                "params": {
+                    "type": "tool.start",
+                    "session_id": "rt-session-001",
+                    "payload": {
+                        "tool_id": "tool-call-101",
+                        "name": "bash_execution",
+                        "input": {
+                            "command": "ls -la"
+                        }
+                    }
+                }
+            }
+        """.trimIndent()
+        val root = json.decodeFromString<JsonObject>(raw)
+        val event = GatewayEvent.parse(root)
+        assertTrue(event is GatewayEvent.ToolStartEvent)
+        val toolStart = event as GatewayEvent.ToolStartEvent
+        assertEquals("tool-call-101", toolStart.toolId)
+        assertEquals("bash_execution", toolStart.name)
+        assertNotNull(toolStart.input)
+        assertEquals("rt-session-001", toolStart.sessionId)
+    }
+
+    @Test
+    fun testUpstreamHermesContractToolProgress() {
+        val raw = """
+            {
+                "jsonrpc": "2.0",
+                "method": "event",
+                "params": {
+                    "type": "tool.progress",
+                    "session_id": "rt-session-001",
+                    "payload": {
+                        "tool_id": "tool-call-101",
+                        "progress": "Downloading dependencies..."
+                    }
+                }
+            }
+        """.trimIndent()
+        val root = json.decodeFromString<JsonObject>(raw)
+        val event = GatewayEvent.parse(root)
+        assertTrue(event is GatewayEvent.ToolProgressEvent)
+        val toolProgress = event as GatewayEvent.ToolProgressEvent
+        assertEquals("tool-call-101", toolProgress.toolId)
+        assertEquals("Downloading dependencies...", toolProgress.progress)
+        assertEquals("rt-session-001", toolProgress.sessionId)
+    }
+
+    @Test
+    fun testUpstreamHermesContractToolComplete() {
+        val raw = """
+            {
+                "jsonrpc": "2.0",
+                "method": "event",
+                "params": {
+                    "type": "tool.complete",
+                    "session_id": "rt-session-001",
+                    "payload": {
+                        "tool_id": "tool-call-101",
+                        "result": "Total 14 files found",
+                        "is_error": false
+                    }
+                }
+            }
+        """.trimIndent()
+        val root = json.decodeFromString<JsonObject>(raw)
+        val event = GatewayEvent.parse(root)
+        assertTrue(event is GatewayEvent.ToolCompleteEvent)
+        val toolComplete = event as GatewayEvent.ToolCompleteEvent
+        assertEquals("tool-call-101", toolComplete.toolId)
+        assertEquals("Total 14 files found", toolComplete.result)
+        assertEquals(false, toolComplete.isError)
+        assertEquals("rt-session-001", toolComplete.sessionId)
+    }
+
+    @Test
+    fun testUpstreamHermesContractApprovalRequest() {
+        val raw = """
+            {
+                "jsonrpc": "2.0",
+                "method": "event",
+                "params": {
+                    "type": "approval.request",
+                    "session_id": "rt-session-001",
+                    "payload": {
+                        "request_id": "appr-req-999",
+                        "command": "rm -rf /var/log/*",
+                        "description": "Clean logs directory",
+                        "choices": ["once", "deny", "always"]
+                    }
+                }
+            }
+        """.trimIndent()
+        val root = json.decodeFromString<JsonObject>(raw)
+        val event = GatewayEvent.parse(root)
+        assertTrue(event is GatewayEvent.ApprovalRequestEvent)
+        val approval = event as GatewayEvent.ApprovalRequestEvent
+        assertEquals("appr-req-999", approval.requestId)
+        assertEquals("rm -rf /var/log/*", approval.command)
+        assertEquals("Clean logs directory", approval.description)
+        assertEquals(3, approval.choices.size)
+        assertEquals(listOf("once", "deny", "always"), approval.choices)
+        assertEquals("rt-session-001", approval.sessionId)
+        assertEquals("rt-session-001", approval.sessionKey)
+    }
+
+    @Test
+    fun testUpstreamHermesContractClarifyRequest() {
+        val raw = """
+            {
+                "jsonrpc": "2.0",
+                "method": "event",
+                "params": {
+                    "type": "clarify.request",
+                    "session_id": "rt-session-001",
+                    "payload": {
+                        "request_id": "clarify-req-555",
+                        "question_id": "q-port-target",
+                        "question": "Which HTTP port should the mock server bind to?"
+                    }
+                }
+            }
+        """.trimIndent()
+        val root = json.decodeFromString<JsonObject>(raw)
+        val event = GatewayEvent.parse(root)
+        assertTrue(event is GatewayEvent.ClarifyRequestEvent)
+        val clarify = event as GatewayEvent.ClarifyRequestEvent
+        assertEquals("clarify-req-555", clarify.requestId)
+        assertEquals("q-port-target", clarify.questionId)
+        assertEquals("Which HTTP port should the mock server bind to?", clarify.question)
+        assertEquals(ClarifyType.CLARIFY, clarify.promptType)
+        assertEquals("rt-session-001", clarify.sessionId)
     }
 
     @Test

@@ -5,6 +5,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 
+import java.io.IOException
+
 @Serializable
 data class JsonRpcRequest(
     val jsonrpc: String = "2.0",
@@ -27,3 +29,10 @@ data class JsonRpcError(
     val message: String,
     val data: JsonElement? = null
 )
+
+open class JsonRpcException(
+    val code: Int,
+    val errorMessage: String,
+    val data: JsonElement? = null
+) : IOException("RPC Error [$code]: $errorMessage")
+
