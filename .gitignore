@@ -41,3 +41,7 @@ Thumbs.db
 # Rust / Cargo
 hermes-pair/target/
 **/target/
+hermes-pair/dist/
+dist/
+**/dist/
+

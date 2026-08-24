@@ -123,27 +123,55 @@ Assemble Debug APK:
 
 Inside the `hermes-pair/` directory is the cross-platform desktop companion application written in Rust. It runs on Windows and Linux to auto-discover your local IP and generate a secure QR code for instant onboarding with Hermes Android.
 
-### Windows (GUI or CLI):
+### 1. Download Prebuilt Binaries (GitHub Releases)
+
+Download prebuilt binaries and `SHA256SUMS.txt` from the latest [GitHub Releases](https://github.com/ochenstarik-ui/hermes-android/releases).
+
+#### Verifying SHA-256 Checksums:
+
+- **Windows (PowerShell)**:
+  ```powershell
+  Get-FileHash .\hermes-pair-windows-x86_64.exe -Algorithm SHA256
+  # Compare the resulting hash with SHA256SUMS.txt
+  ```
+
+- **Linux**:
+  ```bash
+  sha256sum -c SHA256SUMS.txt
+  # or verify directly:
+  sha256sum hermes-pair-linux-x86_64
+  ```
+
+### 2. Running Hermes Pair
+
+#### Windows (GUI or CLI):
 ```powershell
-# GUI window
-.\hermes-pair\dist\windows\HermesPair.exe
+# Launch GUI window
+.\hermes-pair-windows-x86_64.exe
 
 # Terminal QR output
-.\hermes-pair\dist\windows\HermesPair.exe qr --port 9119
+.\hermes-pair-windows-x86_64.exe qr --port 9119
 ```
 
-### Linux (GUI or Headless Server):
+#### Linux (GUI or Headless Server):
 ```bash
-# GUI window
-./hermes-pair/dist/linux/hermes-pair
+chmod +x hermes-pair-linux-x86_64
+
+# Launch GUI window
+./hermes-pair-linux-x86_64
 
 # Headless / Terminal QR
-./hermes-pair/dist/linux/hermes-pair --terminal --port 9119
+./hermes-pair-linux-x86_64 --terminal --port 9119
 ```
 
-### Building Hermes Pair from Source:
+### 3. Building Hermes Pair from Source:
 ```bash
 cd hermes-pair
 cargo test
 cargo build --release
 ```
+
+The compiled binaries will be located at:
+- **Windows**: `hermes-pair/target/release/hermes-pair.exe`
+- **Linux**: `hermes-pair/target/release/hermes-pair`
+
