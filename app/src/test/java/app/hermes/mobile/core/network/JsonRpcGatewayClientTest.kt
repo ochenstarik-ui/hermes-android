@@ -6,7 +6,6 @@ import app.hermes.mobile.core.model.RuntimeSessionId
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import okhttp3.Response
