@@ -13,7 +13,7 @@ navigationCompose = "2.8.8"
 browser = "1.8.0"
 datastore = "1.1.2"
 securityCrypto = "1.1.0-alpha06"
-room = "2.6.1"
+room = "2.8.4"
 camerax = "1.4.1"
 
 # KotlinX
