@@ -53,7 +53,8 @@ class AppViewModelFactory(
                     connectionManager = container.connectionManager,
                     tokenVault = container.tokenVault,
                     restClient = container.restClient,
-                    pkceAuthManager = container.pkceAuthManager
+                    pkceAuthManager = container.pkceAuthManager,
+                    usedNonceDao = container.db.usedNonceDao()
                 ) as T
             }
             modelClass.isAssignableFrom(ChatViewModel::class.java) -> {

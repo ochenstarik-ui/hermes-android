@@ -1,6 +1,6 @@
 use crate::models::HermesStatusResponse;
-use crate::network::is_loopback;
-use std::net::Ipv4Addr;
+use crate::network::{format_host_ip, is_loopback};
+use std::net::IpAddr;
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,7 +93,7 @@ impl HermesProbeClient {
         hermes_url: Option<&str>,
         scheme: &str,
         port: u16,
-        lan_ip: Option<Ipv4Addr>,
+        lan_ip: Option<IpAddr>,
     ) -> ProbeState {
         if let Some(url_str) = hermes_url {
             let direct_res = self.fetch_status(url_str).await;
@@ -103,7 +103,7 @@ impl HermesProbeClient {
                     Ok(local_status) => {
                         if let Some(lan) = lan_ip {
                             if !is_loopback(&lan) {
-                                let lan_url = format!("{}://{}:{}", scheme, lan, port);
+                                let lan_url = format!("{}://{}:{}", scheme, format_host_ip(&lan), port);
                                 match self.fetch_status(&lan_url).await {
                                     Ok(lan_status) => ProbeState::Online(lan_status),
                                     Err(lan_err) => ProbeState::LoopbackOnly {
@@ -121,7 +121,7 @@ impl HermesProbeClient {
                     Err(err) => {
                         if let Some(lan) = lan_ip {
                             if !is_loopback(&lan) {
-                                let lan_url = format!("{}://{}:{}", scheme, lan, port);
+                                let lan_url = format!("{}://{}:{}", scheme, format_host_ip(&lan), port);
                                 match self.fetch_status(&lan_url).await {
                                     Ok(lan_status) => ProbeState::Online(lan_status),
                                     Err(_) => ProbeState::Offline(err),
@@ -146,7 +146,7 @@ impl HermesProbeClient {
 
             match (local_result, lan_ip) {
                 (Ok(local_status), Some(lan)) if !is_loopback(&lan) => {
-                    let lan_url = format!("{}://{}:{}", scheme, lan, port);
+                    let lan_url = format!("{}://{}:{}", scheme, format_host_ip(&lan), port);
                     match self.fetch_status(&lan_url).await {
                         Ok(lan_status) => ProbeState::Online(lan_status),
                         Err(lan_err) => ProbeState::LoopbackOnly {
@@ -157,7 +157,7 @@ impl HermesProbeClient {
                 }
                 (Ok(local_status), _) => ProbeState::Online(local_status),
                 (Err(local_err), Some(lan)) if !is_loopback(&lan) => {
-                    let lan_url = format!("{}://{}:{}", scheme, lan, port);
+                    let lan_url = format!("{}://{}:{}", scheme, format_host_ip(&lan), port);
                     match self.fetch_status(&lan_url).await {
                         Ok(lan_status) => ProbeState::Online(lan_status),
                         Err(_) => ProbeState::Offline(local_err),
@@ -192,7 +192,7 @@ pub async fn probe_hermes(
     hermes_url: Option<&str>,
     scheme: &str,
     port: u16,
-    lan_ip: Option<Ipv4Addr>,
+    lan_ip: Option<IpAddr>,
 ) -> ProbeState {
     let client = HermesProbeClient::new();
     client.probe(hermes_url, scheme, port, lan_ip).await

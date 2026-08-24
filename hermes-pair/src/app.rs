@@ -2,15 +2,23 @@ use crate::config::AppConfig;
 use crate::hermes::{HermesProbeClient, ProbeState};
 use crate::identity::{get_display_name, get_host_id};
 use crate::models::{NetworkInterfaceInfo, PairingPayloadV1};
-use crate::network::discover_network_interfaces;
+use crate::network::{discover_network_interfaces, format_host_ip};
 use crate::pairing::{
-    create_pairing_payload, encode_pairing_uri, MAX_TTL_SECONDS, MIN_TTL_SECONDS,
+    create_pairing_payload, current_unix_timestamp, encode_pairing_uri, MAX_TTL_SECONDS,
+    MIN_TTL_SECONDS,
 };
 use crate::qr::render_egui_image;
 use eframe::egui::{self, Color32, RichText, TextureHandle, Vec2};
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::{Duration, Instant};
+
+struct ProbeRequest {
+    hermes_url: Option<String>,
+    scheme: String,
+    port: u16,
+    lan_ip: IpAddr,
+}
 
 pub struct HermesPairApp {
     config: AppConfig,
@@ -23,12 +31,11 @@ pub struct HermesPairApp {
 
     current_payload: PairingPayloadV1,
     current_uri: String,
-    generated_at: Instant,
     qr_texture: Option<TextureHandle>,
 
     probe_state: ProbeState,
-    probe_tx: Sender<ProbeState>,
-    probe_rx: Receiver<ProbeState>,
+    probe_req_tx: Sender<ProbeRequest>,
+    probe_res_rx: Receiver<ProbeState>,
     is_probing: bool,
 
     copied_banner_timer: Option<Instant>,
@@ -50,7 +57,7 @@ impl HermesPairApp {
         if interfaces.is_empty() {
             interfaces.push(NetworkInterfaceInfo {
                 name: "Loopback".to_string(),
-                ip: Ipv4Addr::new(127, 0, 0, 1),
+                ip: IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
                 is_loopback: true,
                 is_virtual: false,
             });
@@ -59,10 +66,11 @@ impl HermesPairApp {
         let mut selected_iface_index = 0;
         if let Some(ref target) = explicit_interface {
             let lower = target.to_lowercase();
-            if let Some(idx) = interfaces
-                .iter()
-                .position(|i| i.name.to_lowercase().contains(&lower) || i.ip.to_string() == *target)
-            {
+            if let Some(idx) = interfaces.iter().position(|i| {
+                i.name.to_lowercase().contains(&lower)
+                    || i.ip.to_string() == *target
+                    || format_host_ip(&i.ip) == *target
+            }) {
                 selected_iface_index = idx;
             }
         }
@@ -74,16 +82,39 @@ impl HermesPairApp {
         let current_payload = create_pairing_payload(
             host_id,
             display_name,
-            host_ip.to_string(),
+            format_host_ip(&host_ip),
             port,
             scheme.clone(),
             ttl,
         );
         let current_uri = encode_pairing_uri(&current_payload);
-
         let qr_texture = Self::build_qr_texture(&cc.egui_ctx, &current_uri);
 
-        let (probe_tx, probe_rx) = channel();
+        let (probe_req_tx, probe_req_rx) = channel::<ProbeRequest>();
+        let (probe_res_tx, probe_res_rx) = channel::<ProbeState>();
+
+        // Reusable single background worker thread & Tokio runtime
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build();
+            if let Ok(rt) = rt {
+                let client = HermesProbeClient::new();
+                while let Ok(req) = probe_req_rx.recv() {
+                    let res = rt.block_on(async {
+                        client
+                            .probe(
+                                req.hermes_url.as_deref(),
+                                &req.scheme,
+                                req.port,
+                                Some(req.lan_ip),
+                            )
+                            .await
+                    });
+                    let _ = probe_res_tx.send(res);
+                }
+            }
+        });
 
         let mut app = Self {
             config,
@@ -95,11 +126,10 @@ impl HermesPairApp {
             selected_iface_index,
             current_payload,
             current_uri,
-            generated_at: Instant::now(),
             qr_texture,
             probe_state: ProbeState::Offline("Initial probe running...".to_string()),
-            probe_tx,
-            probe_rx,
+            probe_req_tx,
+            probe_res_rx,
             is_probing: false,
             copied_banner_timer: None,
         };
@@ -126,21 +156,20 @@ impl HermesPairApp {
         self.current_payload = create_pairing_payload(
             host_id,
             display_name,
-            host_ip.to_string(),
+            format_host_ip(&host_ip),
             self.port,
             self.scheme.clone(),
             self.ttl,
         );
         self.current_uri = encode_pairing_uri(&self.current_payload);
-        self.generated_at = Instant::now();
         self.qr_texture = Self::build_qr_texture(ctx, &self.current_uri);
     }
 
-    fn selected_ip(&self) -> Ipv4Addr {
+    fn selected_ip(&self) -> IpAddr {
         self.interfaces
             .get(self.selected_iface_index)
             .map(|i| i.ip)
-            .unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1))
+            .unwrap_or_else(|| IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)))
     }
 
     fn trigger_probe(&mut self) {
@@ -149,27 +178,14 @@ impl HermesPairApp {
         }
 
         self.is_probing = true;
-        let hermes_url = self.hermes_url.clone();
-        let scheme = self.scheme.clone();
-        let port = self.port;
-        let lan_ip = self.selected_ip();
-        let tx = self.probe_tx.clone();
+        let req = ProbeRequest {
+            hermes_url: self.hermes_url.clone(),
+            scheme: self.scheme.clone(),
+            port: self.port,
+            lan_ip: self.selected_ip(),
+        };
 
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build();
-
-            if let Ok(rt) = rt {
-                rt.block_on(async {
-                    let client = HermesProbeClient::new();
-                    let res = client
-                        .probe(hermes_url.as_deref(), &scheme, port, Some(lan_ip))
-                        .await;
-                    let _ = tx.send(res);
-                });
-            }
-        });
+        let _ = self.probe_req_tx.send(req);
     }
 
     fn refresh_interfaces(&mut self) {
@@ -186,17 +202,15 @@ impl HermesPairApp {
 
 impl eframe::App for HermesPairApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Poll background probe channel
-        while let Ok(state) = self.probe_rx.try_recv() {
+        while let Ok(state) = self.probe_res_rx.try_recv() {
             self.probe_state = state;
             self.is_probing = false;
         }
 
-        // Request repaint every 500ms for smooth timer update
         ctx.request_repaint_after(Duration::from_millis(500));
 
-        let elapsed = self.generated_at.elapsed().as_secs();
-        let remaining = self.ttl.saturating_sub(elapsed);
+        let now_ts = current_unix_timestamp();
+        let remaining = self.current_payload.expires_at.saturating_sub(now_ts);
         let is_expired = remaining == 0;
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -305,7 +319,7 @@ impl eframe::App for HermesPairApp {
                 ui.label("Network Interface:");
                 let current_label =
                     if let Some(iface) = self.interfaces.get(self.selected_iface_index) {
-                        format!("{} ({})", iface.name, iface.ip)
+                        format!("{} ({})", iface.name, format_host_ip(&iface.ip))
                     } else {
                         "None".to_string()
                     };
@@ -317,12 +331,12 @@ impl eframe::App for HermesPairApp {
                         for (idx, iface) in self.interfaces.iter().enumerate() {
                             let tag = if iface.is_virtual {
                                 "[Virt]"
-                            } else if iface.ip.is_private() {
+                            } else if crate::network::is_private_ip(&iface.ip) {
                                 "[LAN]"
                             } else {
                                 ""
                             };
-                            let label = format!("{} ({}) {}", iface.name, iface.ip, tag);
+                            let label = format!("{} ({}) {}", iface.name, format_host_ip(&iface.ip), tag);
                             ui.selectable_value(&mut self.selected_iface_index, idx, label);
                         }
                     });
@@ -339,7 +353,7 @@ impl eframe::App for HermesPairApp {
                 ui.monospace(format!(
                     "{}://{}:{}",
                     self.scheme,
-                    self.selected_ip(),
+                    format_host_ip(&self.selected_ip()),
                     self.port
                 ));
             });

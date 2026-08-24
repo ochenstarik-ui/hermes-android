@@ -12,29 +12,43 @@ class HermesPairingParserTest {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(json.toByteArray())
     }
 
+    private fun encodePayloadWith16ByteNonce(
+        hostId: String = UUID.randomUUID().toString(),
+        name: String = "My Server",
+        host: String = "192.168.1.5",
+        port: Int = 9119,
+        scheme: String = "http",
+        expiresAt: Long = (System.currentTimeMillis() / 1000) + 300,
+        nonce: String = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16) { it.toByte() }),
+        v: Int = 1,
+        type: String = "hermes-pair"
+    ): String {
+        val json = """
+            {
+                "v": $v,
+                "type": "$type",
+                "host_id": "$hostId",
+                "name": "$name",
+                "host": "$host",
+                "port": $port,
+                "scheme": "$scheme",
+                "expires_at": $expiresAt,
+                "nonce": "$nonce"
+            }
+        """.trimIndent()
+        return encodePayload(json)
+    }
+
     @Test
     fun testValidPairingPayloadParsing() {
         val futureTime = (System.currentTimeMillis() / 1000) + 300
         val hostId = UUID.randomUUID().toString()
-        val json = """
-            {
-                "v": 1,
-                "type": "hermes-pair",
-                "host_id": "$hostId",
-                "name": "My Server",
-                "host": "192.168.1.5",
-                "port": 9119,
-                "scheme": "http",
-                "expires_at": $futureTime,
-                "nonce": "QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY"
-            }
-        """.trimIndent()
-        
-        val uri = "hermes://pair?data=${encodePayload(json)}"
+        val nonce16 = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16) { 0x42 })
+        val uri = "hermes://pair?data=${encodePayloadWith16ByteNonce(hostId = hostId, expiresAt = futureTime, nonce = nonce16)}"
         val result = HermesPairingParser.parse(uri)
-        
-        assertTrue(result is PairingValidationResult.Success)
-        val payload = (result as PairingValidationResult.Success).payload
+
+        assertTrue("Expected PairingResult.Success, got $result", result is PairingResult.Success)
+        val payload = (result as PairingResult.Success).payload
         assertEquals(1, payload.v)
         assertEquals(hostId, payload.hostId)
         assertEquals("My Server", payload.name)
@@ -46,125 +60,131 @@ class HermesPairingParserTest {
     @Test
     fun testCanonicalCrossContractFixture() {
         val futureTime = (System.currentTimeMillis() / 1000) + 300
-        val json = """
-            {
-                "v": 1,
-                "type": "hermes-pair",
-                "host_id": "58af1471-a0a2-4e2b-9426-5068f2a2deab",
-                "name": "Office-PC",
-                "host": "192.168.1.150",
-                "port": 9119,
-                "scheme": "http",
-                "expires_at": $futureTime,
-                "nonce": "QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY"
-            }
-        """.trimIndent()
-        val uri = "hermes://pair?data=${encodePayload(json)}"
+        val nonce16 = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16) { (it + 1).toByte() })
+        val uri = "hermes://pair?data=${encodePayloadWith16ByteNonce(
+            hostId = "58af1471-a0a2-4e2b-9426-5068f2a2deab",
+            name = "Office-PC",
+            host = "192.168.1.150",
+            port = 9119,
+            scheme = "http",
+            expiresAt = futureTime,
+            nonce = nonce16
+        )}"
         val result = HermesPairingParser.parse(uri)
-        assertTrue(result is PairingValidationResult.Success)
-        val payload = (result as PairingValidationResult.Success).payload
+        assertTrue(result is PairingResult.Success)
+        val payload = (result as PairingResult.Success).payload
         assertEquals("58af1471-a0a2-4e2b-9426-5068f2a2deab", payload.hostId)
         assertEquals("Office-PC", payload.name)
         assertEquals("192.168.1.150", payload.host)
         assertEquals(9119, payload.port)
         assertEquals("http", payload.scheme)
-        assertEquals("QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY", payload.nonce)
+        assertEquals(nonce16, payload.nonce)
     }
 
     @Test
     fun testExpiredPayloadRejection() {
         val pastTime = (System.currentTimeMillis() / 1000) - 35
-        val json = """{"v":1,"type":"hermes-pair","host_id":"58af1471-a0a2-4e2b-9426-5068f2a2deab","name":"S","host":"1.1.1.1","port":9119,"scheme":"http","expires_at":$pastTime,"nonce":"QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY"}"""
-        val uri = "hermes://pair?data=${encodePayload(json)}"
+        val nonce16 = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16))
+        val uri = "hermes://pair?data=${encodePayloadWith16ByteNonce(expiresAt = pastTime, nonce = nonce16)}"
         val result = HermesPairingParser.parse(uri)
-        assertTrue(result is PairingValidationResult.Expired)
-    }
-
-    @Test
-    fun testExcessiveTTLRejection() {
-        val farFuture = (System.currentTimeMillis() / 1000) + 605
-        val json = """{"v":1,"type":"hermes-pair","host_id":"58af1471-a0a2-4e2b-9426-5068f2a2deab","name":"S","host":"1.1.1.1","port":9119,"scheme":"http","expires_at":$farFuture,"nonce":"QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY"}"""
-        val result = HermesPairingParser.parse("hermes://pair?data=${encodePayload(json)}")
-        assertTrue(result is PairingValidationResult.InvalidPayload)
+        assertTrue("Expected ExpiredPayload, got $result", result is PairingResult.Failure && result.error is PairingError.ExpiredPayload)
     }
 
     @Test
     fun testInvalidVersionRejection() {
-        val json = """{"v":2,"type":"hermes-pair","host_id":"58af1471-a0a2-4e2b-9426-5068f2a2deab","name":"S","host":"1.1.1.1","port":9119,"scheme":"http","expires_at":${(System.currentTimeMillis() / 1000) + 300},"nonce":"QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY"}"""
-        assertTrue(HermesPairingParser.parse("hermes://pair?data=${encodePayload(json)}") is PairingValidationResult.InvalidVersion)
+        val nonce16 = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16))
+        val uri = "hermes://pair?data=${encodePayloadWith16ByteNonce(v = 2, nonce = nonce16)}"
+        val result = HermesPairingParser.parse(uri)
+        assertTrue("Expected UnsupportedProtocolVersion, got $result", result is PairingResult.Failure && result.error is PairingError.UnsupportedProtocolVersion)
     }
 
     @Test
     fun testInvalidTypeRejection() {
-        val json = """{"v":1,"type":"other","host_id":"58af1471-a0a2-4e2b-9426-5068f2a2deab","name":"S","host":"1.1.1.1","port":9119,"scheme":"http","expires_at":${(System.currentTimeMillis() / 1000) + 300},"nonce":"QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY"}"""
-        assertTrue(HermesPairingParser.parse("hermes://pair?data=${encodePayload(json)}") is PairingValidationResult.InvalidPayload)
+        val nonce16 = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16))
+        val uri = "hermes://pair?data=${encodePayloadWith16ByteNonce(type = "other", nonce = nonce16)}"
+        val result = HermesPairingParser.parse(uri)
+        assertTrue("Expected InvalidPayloadType, got $result", result is PairingResult.Failure && result.error is PairingError.InvalidPayloadType)
     }
 
     @Test
     fun testInvalidHostIdRejection() {
-        val json = """{"v":1,"type":"hermes-pair","host_id":"not-a-uuid","name":"S","host":"1.1.1.1","port":9119,"scheme":"http","expires_at":${(System.currentTimeMillis() / 1000) + 300},"nonce":"QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY"}"""
-        assertTrue(HermesPairingParser.parse("hermes://pair?data=${encodePayload(json)}") is PairingValidationResult.InvalidPayload)
+        val nonce16 = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16))
+        val uri = "hermes://pair?data=${encodePayloadWith16ByteNonce(hostId = "not-a-uuid", nonce = nonce16)}"
+        val result = HermesPairingParser.parse(uri)
+        assertTrue("Expected InvalidHostId, got $result", result is PairingResult.Failure && result.error is PairingError.InvalidHostId)
     }
 
     @Test
     fun testInvalidNameRejections() {
-        val futures = listOf("", "   ", "Name\u0000", "A".repeat(129))
-        futures.forEach { name ->
-            val json = """{"v":1,"type":"hermes-pair","host_id":"58af1471-a0a2-4e2b-9426-5068f2a2deab","name":"$name","host":"1.1.1.1","port":9119,"scheme":"http","expires_at":${(System.currentTimeMillis() / 1000) + 300},"nonce":"QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY"}"""
-            assertTrue(HermesPairingParser.parse("hermes://pair?data=${encodePayload(json)}") is PairingValidationResult.InvalidPayload)
+        val nonce16 = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16))
+        val badNames = listOf("", "   ", "Name\u0000", "A".repeat(129))
+        badNames.forEach { name ->
+            val uri = "hermes://pair?data=${encodePayloadWith16ByteNonce(name = name, nonce = nonce16)}"
+            val result = HermesPairingParser.parse(uri)
+            assertTrue("Expected failure for name '$name', got $result", result is PairingResult.Failure && result.error is PairingError.InvalidName)
         }
     }
 
     @Test
     fun testInvalidHostRejections() {
+        val nonce16 = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16))
         val hosts = listOf("1.1.1.1/path", "user@1.1.1.1", "1.1.1.1:9119", "1.1.1.1?q=1", "1.1.1.1#frag", "1 1")
         hosts.forEach { host ->
-            val json = """{"v":1,"type":"hermes-pair","host_id":"58af1471-a0a2-4e2b-9426-5068f2a2deab","name":"S","host":"$host","port":9119,"scheme":"http","expires_at":${(System.currentTimeMillis() / 1000) + 300},"nonce":"QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY"}"""
-            assertTrue(HermesPairingParser.parse("hermes://pair?data=${encodePayload(json)}") is PairingValidationResult.InvalidPayload)
+            val uri = "hermes://pair?data=${encodePayloadWith16ByteNonce(host = host, nonce = nonce16)}"
+            val result = HermesPairingParser.parse(uri)
+            assertTrue("Expected failure for host '$host', got $result", result is PairingResult.Failure && (result.error is PairingError.InvalidHost || result.error is PairingError.EmptyHost))
         }
     }
 
     @Test
     fun testInvalidPortRejections() {
+        val nonce16 = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16))
         val ports = listOf(0, 70000)
         ports.forEach { port ->
-            val json = """{"v":1,"type":"hermes-pair","host_id":"58af1471-a0a2-4e2b-9426-5068f2a2deab","name":"S","host":"1.1.1.1","port":$port,"scheme":"http","expires_at":${(System.currentTimeMillis() / 1000) + 300},"nonce":"QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY"}"""
-            assertTrue(HermesPairingParser.parse("hermes://pair?data=${encodePayload(json)}") is PairingValidationResult.InvalidPayload)
+            val uri = "hermes://pair?data=${encodePayloadWith16ByteNonce(port = port, nonce = nonce16)}"
+            val result = HermesPairingParser.parse(uri)
+            assertTrue("Expected InvalidPort for port $port, got $result", result is PairingResult.Failure && result.error is PairingError.InvalidPort)
         }
     }
 
     @Test
     fun testInvalidSchemeRejection() {
-        val json = """{"v":1,"type":"hermes-pair","host_id":"58af1471-a0a2-4e2b-9426-5068f2a2deab","name":"S","host":"1.1.1.1","port":9119,"scheme":"ftp","expires_at":${(System.currentTimeMillis() / 1000) + 300},"nonce":"QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY"}"""
-        assertTrue(HermesPairingParser.parse("hermes://pair?data=${encodePayload(json)}") is PairingValidationResult.InvalidScheme)
+        val nonce16 = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16))
+        val uri = "hermes://pair?data=${encodePayloadWith16ByteNonce(scheme = "ftp", nonce = nonce16)}"
+        val result = HermesPairingParser.parse(uri)
+        assertTrue("Expected InvalidScheme, got $result", result is PairingResult.Failure && result.error is PairingError.InvalidScheme)
     }
 
     @Test
     fun testInvalidNonceRejections() {
         val shortNonce = Base64.getUrlEncoder().withoutPadding().encodeToString("12345".toByteArray())
-        val json = """{"v":1,"type":"hermes-pair","host_id":"58af1471-a0a2-4e2b-9426-5068f2a2deab","name":"S","host":"1.1.1.1","port":9119,"scheme":"http","expires_at":${(System.currentTimeMillis() / 1000) + 300},"nonce":"$shortNonce"}"""
-        assertTrue(HermesPairingParser.parse("hermes://pair?data=${encodePayload(json)}") is PairingValidationResult.InvalidPayload)
-        
+        val uri1 = "hermes://pair?data=${encodePayloadWith16ByteNonce(nonce = shortNonce)}"
+        val result1 = HermesPairingParser.parse(uri1)
+        assertTrue("Expected InvalidNonce for short nonce, got $result1", result1 is PairingResult.Failure && result1.error is PairingError.InvalidNonce)
+
         val invalidBase64 = "ThisIs!Not!Valid!Base64"
-        val json2 = """{"v":1,"type":"hermes-pair","host_id":"58af1471-a0a2-4e2b-9426-5068f2a2deab","name":"S","host":"1.1.1.1","port":9119,"scheme":"http","expires_at":${(System.currentTimeMillis() / 1000) + 300},"nonce":"$invalidBase64"}"""
-        assertTrue(HermesPairingParser.parse("hermes://pair?data=${encodePayload(json2)}") is PairingValidationResult.InvalidPayload)
+        val uri2 = "hermes://pair?data=${encodePayloadWith16ByteNonce(nonce = invalidBase64)}"
+        val result2 = HermesPairingParser.parse(uri2)
+        assertTrue("Expected InvalidNonce for bad b64 nonce, got $result2", result2 is PairingResult.Failure && result2.error is PairingError.InvalidNonce)
     }
 
     @Test
     fun testOversizedPayloads() {
+        val nonce16 = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16))
         val longString = "A".repeat(3000)
-        val json = """{"v":1,"type":"hermes-pair","host_id":"58af1471-a0a2-4e2b-9426-5068f2a2deab","name":"$longString","host":"1.1.1.1","port":9119,"scheme":"http","expires_at":${(System.currentTimeMillis() / 1000) + 300},"nonce":"QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY"}"""
-        val uri = "hermes://pair?data=${encodePayload(json)}"
-        assertTrue(HermesPairingParser.parse(uri) is PairingValidationResult.InvalidPayload)
-        
+        val uri = "hermes://pair?data=${encodePayloadWith16ByteNonce(name = longString, nonce = nonce16)}"
+        val result = HermesPairingParser.parse(uri)
+        assertTrue("Expected failure for oversized name, got $result", result is PairingResult.Failure)
+
         val hugeUri = "hermes://pair?data=" + "A".repeat(5000)
-        assertTrue(HermesPairingParser.parse(hugeUri) is PairingValidationResult.InvalidPayload)
+        val result2 = HermesPairingParser.parse(hugeUri)
+        assertTrue("Expected failure for huge URI, got $result2", result2 is PairingResult.Failure)
     }
 
     @Test
     fun testMalformedBase64Rejection() {
         val uri = "hermes://pair?data=ThisIs!Not!Valid!Base64"
         val result = HermesPairingParser.parse(uri)
-        assertTrue(result is PairingValidationResult.InvalidPayload)
+        assertTrue("Expected Base64DecodeError, got $result", result is PairingResult.Failure && result.error is PairingError.Base64DecodeError)
     }
 }

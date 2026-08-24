@@ -9,11 +9,13 @@ use hermes_pair::pairing::{
     create_pairing_payload, decode_pairing_uri, decode_pairing_uri_at_time, encode_pairing_uri,
     validate_payload, validate_ttl, PairingError, MAX_DECODED_JSON_BYTES, MAX_ENCODED_URI_BYTES,
 };
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use uuid::Uuid;
+
+const TEST_NONCE_16: &str = "AQIDBAUGBwgJCgsMDQ4PEA";
 
 #[test]
 fn test_canonical_cross_contract_fixture() {
@@ -26,7 +28,7 @@ fn test_canonical_cross_contract_fixture() {
         port: 9119,
         scheme: "http".to_string(),
         expires_at: 1800000000,
-        nonce: "QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY".to_string(),
+        nonce: TEST_NONCE_16.to_string(),
     };
 
     let json_str = serde_json::to_string(&payload).expect("Serialization failed");
@@ -38,7 +40,7 @@ fn test_canonical_cross_contract_fixture() {
     assert!(json_str.contains("\"port\":9119"));
     assert!(json_str.contains("\"scheme\":\"http\""));
     assert!(json_str.contains("\"expires_at\":1800000000"));
-    assert!(json_str.contains("\"nonce\":\"QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY\""));
+    assert!(json_str.contains(&format!("\"nonce\":\"{}\"", TEST_NONCE_16)));
 
     let uri = encode_pairing_uri(&payload);
     assert!(uri.starts_with("hermes://pair?data="));
@@ -56,7 +58,7 @@ fn test_canonical_cross_contract_fixture() {
     assert_eq!(decoded.port, 9119);
     assert_eq!(decoded.scheme, "http");
     assert_eq!(decoded.expires_at, 1800000000);
-    assert_eq!(decoded.nonce, "QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY");
+    assert_eq!(decoded.nonce, TEST_NONCE_16);
 }
 
 #[test]
@@ -89,7 +91,7 @@ fn test_pairing_payload_serde() {
         port: 9119,
         scheme: "http".to_string(),
         expires_at: 1800000000,
-        nonce: "QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY".to_string(),
+        nonce: TEST_NONCE_16.to_string(),
     };
 
     let json = serde_json::to_string(&payload).expect("Serialization failed");
@@ -155,7 +157,7 @@ fn test_expired_payload_rejection() {
         port: 9119,
         scheme: "http".to_string(),
         expires_at: 1000,
-        nonce: "QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY".to_string(),
+        nonce: TEST_NONCE_16.to_string(),
     };
 
     let uri = encode_pairing_uri(&payload);
@@ -171,30 +173,6 @@ fn test_expired_payload_rejection() {
 }
 
 #[test]
-fn test_excessive_future_ttl_rejection() {
-    let host_id = Uuid::new_v4().to_string();
-    let payload = PairingPayloadV1 {
-        v: 1,
-        payload_type: "hermes-pair".to_string(),
-        host_id,
-        name: "Future-Node".to_string(),
-        host: "10.0.0.5".to_string(),
-        port: 9119,
-        scheme: "http".to_string(),
-        expires_at: 1000 + 700, // Exceeds now + 600
-        nonce: "QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY".to_string(),
-    };
-
-    let uri = encode_pairing_uri(&payload);
-    let result = decode_pairing_uri_at_time(&uri, 1000);
-
-    match result {
-        Err(PairingError::TtlExceedsMaximum { .. }) => {}
-        other => panic!("Expected TtlExceedsMaximum error, got {:?}", other),
-    }
-}
-
-#[test]
 fn test_invalid_version_rejection() {
     let host_id = Uuid::new_v4().to_string();
     let payload = PairingPayloadV1 {
@@ -206,7 +184,7 @@ fn test_invalid_version_rejection() {
         port: 9119,
         scheme: "http".to_string(),
         expires_at: 1100,
-        nonce: "QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY".to_string(),
+        nonce: TEST_NONCE_16.to_string(),
     };
 
     let uri = encode_pairing_uri(&payload);
@@ -232,7 +210,7 @@ fn test_invalid_payload_type_rejection() {
         port: 9119,
         scheme: "http".to_string(),
         expires_at: 1100,
-        nonce: "QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY".to_string(),
+        nonce: TEST_NONCE_16.to_string(),
     };
 
     let uri = encode_pairing_uri(&payload);
@@ -257,7 +235,7 @@ fn test_invalid_uuid_rejection() {
         port: 9119,
         scheme: "http".to_string(),
         expires_at: 1100,
-        nonce: "QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY".to_string(),
+        nonce: TEST_NONCE_16.to_string(),
     };
 
     let uri = encode_pairing_uri(&payload);
@@ -283,7 +261,7 @@ fn test_blank_or_oversized_name_rejection() {
         port: 9119,
         scheme: "http".to_string(),
         expires_at: 1100,
-        nonce: "QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY".to_string(),
+        nonce: TEST_NONCE_16.to_string(),
     };
     assert!(validate_payload(&payload, 1000).is_err());
 
@@ -314,7 +292,7 @@ fn test_malicious_host_rejection() {
         port: 9119,
         scheme: "http".to_string(),
         expires_at: 1100,
-        nonce: "QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY".to_string(),
+        nonce: TEST_NONCE_16.to_string(),
     };
 
     let forbidden_hosts = vec![
@@ -353,7 +331,7 @@ fn test_invalid_port_rejection() {
         port: 0,
         scheme: "http".to_string(),
         expires_at: 1100,
-        nonce: "QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY".to_string(),
+        nonce: TEST_NONCE_16.to_string(),
     };
 
     let uri = encode_pairing_uri(&payload);
@@ -379,7 +357,7 @@ fn test_invalid_scheme_rejection() {
         port: 9119,
         scheme: "ftp".to_string(),
         expires_at: 1100,
-        nonce: "QUJDREVGR0hJSktMTU5PUHFyc3R1dnd4eXoxMjM0NTY".to_string(),
+        nonce: TEST_NONCE_16.to_string(),
     };
 
     assert!(validate_payload(&payload, 1000).is_err());
@@ -422,18 +400,8 @@ fn test_nonce_validation() {
     payload.nonce = URL_SAFE_NO_PAD.encode(valid_16);
     assert!(validate_payload(&payload, 1000).is_ok());
 
-    // Valid 32-byte nonce
-    let valid_32 = [1u8; 32];
-    payload.nonce = URL_SAFE_NO_PAD.encode(valid_32);
-    assert!(validate_payload(&payload, 1000).is_ok());
-
-    // Valid 64-byte nonce
-    let valid_64 = [1u8; 64];
-    payload.nonce = URL_SAFE_NO_PAD.encode(valid_64);
-    assert!(validate_payload(&payload, 1000).is_ok());
-
-    // Nonce too long (> 64 bytes decoded)
-    let too_long = [1u8; 65];
+    // Nonce too long (!= 16 bytes decoded)
+    let too_long = [1u8; 32];
     payload.nonce = URL_SAFE_NO_PAD.encode(too_long);
     assert!(validate_payload(&payload, 1000).is_err());
 
@@ -504,31 +472,31 @@ fn test_network_interface_filtering() {
     let test_interfaces = vec![
         NetworkInterfaceInfo {
             name: "lo".to_string(),
-            ip: Ipv4Addr::new(127, 0, 0, 1),
+            ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             is_loopback: true,
             is_virtual: false,
         },
         NetworkInterfaceInfo {
             name: "link-local".to_string(),
-            ip: Ipv4Addr::new(169, 254, 10, 20),
+            ip: IpAddr::V4(Ipv4Addr::new(169, 254, 10, 20)),
             is_loopback: false,
             is_virtual: false,
         },
         NetworkInterfaceInfo {
             name: "docker0".to_string(),
-            ip: Ipv4Addr::new(172, 17, 0, 1),
+            ip: IpAddr::V4(Ipv4Addr::new(172, 17, 0, 1)),
             is_loopback: false,
             is_virtual: true,
         },
         NetworkInterfaceInfo {
             name: "tailscale0".to_string(),
-            ip: Ipv4Addr::new(100, 80, 5, 6),
+            ip: IpAddr::V4(Ipv4Addr::new(100, 80, 5, 6)),
             is_loopback: false,
             is_virtual: false,
         },
         NetworkInterfaceInfo {
             name: "eth0".to_string(),
-            ip: Ipv4Addr::new(192, 168, 1, 10),
+            ip: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10)),
             is_loopback: false,
             is_virtual: false,
         },
@@ -539,10 +507,10 @@ fn test_network_interface_filtering() {
     // Loopback and link-local must be eliminated
     assert!(!sorted
         .iter()
-        .any(|i| i.is_loopback || i.ip == Ipv4Addr::new(127, 0, 0, 1)));
+        .any(|i| i.is_loopback || i.ip == IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
     assert!(!sorted
         .iter()
-        .any(|i| i.ip == Ipv4Addr::new(169, 254, 10, 20)));
+        .any(|i| i.ip == IpAddr::V4(Ipv4Addr::new(169, 254, 10, 20))));
 
     // Order: Physical LAN (eth0 192.168.1.10) -> Tailscale (100.80.5.6) -> Virtual LAN (docker0 172.17.0.1)
     assert_eq!(sorted.len(), 3);

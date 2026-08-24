@@ -55,6 +55,7 @@ pub fn get_config_path() -> PathBuf {
 }
 
 /// Saves the configuration atomically by writing to a temporary file and renaming it.
+/// On Unix, sets 0600 file permissions for security.
 pub fn save_config_to_path(config: &AppConfig, path: &Path) -> Result<(), std::io::Error> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -77,13 +78,31 @@ pub fn save_config_to_path(config: &AppConfig, path: &Path) -> Result<(), std::i
 
     fs::write(&tmp_path, json_bytes)?;
 
-    // On Windows and Unix, fs::rename replaces the destination atomically if in the same directory.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(&tmp_path) {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o600);
+            let _ = fs::set_permissions(&tmp_path, perms);
+        }
+    }
+
     if let Err(_err) = fs::rename(&tmp_path, path) {
-        // Fallback in case rename fails due to cross-platform replacement edge cases
         let _ = fs::remove_file(path);
         if let Err(fallback_err) = fs::rename(&tmp_path, path) {
             let _ = fs::remove_file(&tmp_path);
             return Err(fallback_err);
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(path) {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o600);
+            let _ = fs::set_permissions(path, perms);
         }
     }
 

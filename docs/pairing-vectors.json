@@ -1,0 +1,86 @@
+[
+  {
+    "name": "valid_ipv4_http",
+    "uri": "hermes://pair?data=eyJ2IjogMSwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICIxOTIuMTY4LjEuMTAiLCAicG9ydCI6IDgwODAsICJzY2hlbWUiOiAiaHR0cCIsICJleHBpcmVzX2F0IjogMTgxOTEyNDkyNiwgIm5vbmNlIjogIkFRSURCQVVHQndnSkNnc01EUTRQRUEifQ",
+    "expected_result": "success",
+    "expected_error": null
+  },
+  {
+    "name": "valid_ipv6_https",
+    "uri": "hermes://pair?data=eyJ2IjogMSwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICJbMjAwMTpkYjg6OjFdIiwgInBvcnQiOiA4MDgwLCAic2NoZW1lIjogImh0dHBzIiwgImV4cGlyZXNfYXQiOiAxODE5MTI0OTI2LCAibm9uY2UiOiAiQVFJREJBVUdCd2dKQ2dzTURRNFBFQSJ9",
+    "expected_result": "success",
+    "expected_error": null
+  },
+  {
+    "name": "valid_with_padding",
+    "uri": "hermes://pair?data=eyJ2IjogMSwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICIxOTIuMTY4LjEuMTAiLCAicG9ydCI6IDgwODAsICJzY2hlbWUiOiAiaHR0cCIsICJleHBpcmVzX2F0IjogMTgxOTEyNDkyNiwgIm5vbmNlIjogIkFRSURCQVVHQndnSkNnc01EUTRQRUEifQ==",
+    "expected_result": "success",
+    "expected_error": null
+  },
+  {
+    "name": "expired_payload",
+    "uri": "hermes://pair?data=eyJ2IjogMSwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICIxOTIuMTY4LjEuMTAiLCAicG9ydCI6IDgwODAsICJzY2hlbWUiOiAiaHR0cCIsICJleHBpcmVzX2F0IjogMTc4NzU4NzkyNiwgIm5vbmNlIjogIkFRSURCQVVHQndnSkNnc01EUTRQRUEifQ",
+    "expected_error": "expired_payload"
+  },
+  {
+    "name": "invalid_uri_scheme",
+    "uri": "http://pair?data=eyJ2IjogMSwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICIxOTIuMTY4LjEuMTAiLCAicG9ydCI6IDgwODAsICJzY2hlbWUiOiAiaHR0cCIsICJleHBpcmVzX2F0IjogMTgxOTEyNDkyNiwgIm5vbmNlIjogIkFRSURCQVVHQndnSkNnc01EUTRQRUEifQ",
+    "expected_error": "invalid_uri_scheme"
+  },
+  {
+    "name": "missing_data_param",
+    "uri": "hermes://pair?other=123",
+    "expected_error": "missing_data_param"
+  },
+  {
+    "name": "corrupted_base64",
+    "uri": "hermes://pair?data=!!!!====",
+    "expected_error": "corrupted_base64"
+  },
+  {
+    "name": "empty_data",
+    "uri": "hermes://pair?data=",
+    "expected_error": "empty_data"
+  },
+  {
+    "name": "invalid_json",
+    "uri": "hermes://pair?data=eyBpbnZhbGlkIH0",
+    "expected_error": "invalid_json"
+  },
+  {
+    "name": "wrong_type",
+    "uri": "hermes://pair?data=eyJ2IjogMSwgInR5cGUiOiAid3JvbmctdHlwZSIsICJob3N0X2lkIjogIjEyM2U0NTY3LWU4OWItMTJkMy1hNDU2LTQyNjYxNDE3NDAwMCIsICJuYW1lIjogIk15IFNlcnZlciIsICJob3N0IjogIjE5Mi4xNjguMS4xMCIsICJwb3J0IjogODA4MCwgInNjaGVtZSI6ICJodHRwIiwgImV4cGlyZXNfYXQiOiAxODE5MTI0OTI2LCAibm9uY2UiOiAiQVFJREJBVUdCd2dKQ2dzTURRNFBFQSJ9",
+    "expected_error": "wrong_type"
+  },
+  {
+    "name": "wrong_version",
+    "uri": "hermes://pair?data=eyJ2IjogMiwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICIxOTIuMTY4LjEuMTAiLCAicG9ydCI6IDgwODAsICJzY2hlbWUiOiAiaHR0cCIsICJleHBpcmVzX2F0IjogMTgxOTEyNDkyNiwgIm5vbmNlIjogIkFRSURCQVVHQndnSkNnc01EUTRQRUEifQ",
+    "expected_error": "wrong_version"
+  },
+  {
+    "name": "invalid_uuid",
+    "uri": "hermes://pair?data=eyJ2IjogMSwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICJpbnZhbGlkLXV1aWQtMTIzIiwgIm5hbWUiOiAiTXkgU2VydmVyIiwgImhvc3QiOiAiMTkyLjE2OC4xLjEwIiwgInBvcnQiOiA4MDgwLCAic2NoZW1lIjogImh0dHAiLCAiZXhwaXJlc19hdCI6IDE4MTkxMjQ5MjYsICJub25jZSI6ICJBUUlEQkFVR0J3Z0pDZ3NNRFE0UEVBIn0",
+    "expected_error": "invalid_uuid"
+  },
+  {
+    "name": "invalid_port_zero",
+    "uri": "hermes://pair?data=eyJ2IjogMSwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICIxOTIuMTY4LjEuMTAiLCAicG9ydCI6IDAsICJzY2hlbWUiOiAiaHR0cCIsICJleHBpcmVzX2F0IjogMTgxOTEyNDkyNiwgIm5vbmNlIjogIkFRSURCQVVHQndnSkNnc01EUTRQRUEifQ",
+    "expected_error": "invalid_port_zero"
+  },
+  {
+    "name": "invalid_scheme",
+    "uri": "hermes://pair?data=eyJ2IjogMSwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICIxOTIuMTY4LjEuMTAiLCAicG9ydCI6IDgwODAsICJzY2hlbWUiOiAiZnRwIiwgImV4cGlyZXNfYXQiOiAxODE5MTI0OTI2LCAibm9uY2UiOiAiQVFJREJBVUdCd2dKQ2dzTURRNFBFQSJ9",
+    "expected_error": "invalid_scheme"
+  },
+  {
+    "name": "invalid_nonce_length",
+    "uri": "hermes://pair?data=eyJ2IjogMSwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICIxOTIuMTY4LjEuMTAiLCAicG9ydCI6IDgwODAsICJzY2hlbWUiOiAiaHR0cCIsICJleHBpcmVzX2F0IjogMTgxOTEyNDkyNiwgIm5vbmNlIjogIkFRSUQifQ",
+    "expected_error": "invalid_nonce_length"
+  },
+  {
+    "name": "empty_query_segments_double_ampersand",
+    "uri": "hermes://pair?&&foo=bar&&data=eyJ2IjogMSwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICIxOTIuMTY4LjEuMTAiLCAicG9ydCI6IDgwODAsICJzY2hlbWUiOiAiaHR0cCIsICJleHBpcmVzX2F0IjogMTgxOTEyNDkyNiwgIm5vbmNlIjogIkFRSURCQVVHQndnSkNnc01EUTRQRUEifQ&&",
+    "expected_result": "success",
+    "expected_error": null
+  }
+]

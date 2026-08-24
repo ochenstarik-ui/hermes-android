@@ -1,19 +1,52 @@
 pub use crate::models::NetworkInterfaceInfo;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 
-pub fn is_loopback(ip: &Ipv4Addr) -> bool {
-    ip.is_loopback() || ip.octets()[0] == 127
+pub fn is_loopback(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.octets()[0] == 127,
+        IpAddr::V6(v6) => v6.is_loopback(),
+    }
 }
 
-pub fn is_link_local(ip: &Ipv4Addr) -> bool {
-    let octets = ip.octets();
-    octets[0] == 169 && octets[1] == 254
+pub fn is_link_local(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let octets = v4.octets();
+            octets[0] == 169 && octets[1] == 254
+        }
+        IpAddr::V6(v6) => v6.is_unicast_link_local(),
+    }
 }
 
-pub fn is_tailscale_ip(ip: &Ipv4Addr) -> bool {
-    let octets = ip.octets();
-    // CGNAT range 100.64.0.0/10 commonly used by Tailscale / WireGuard overlays
-    octets[0] == 100 && (octets[1] >= 64 && octets[1] <= 127)
+pub fn is_tailscale_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let octets = v4.octets();
+            octets[0] == 100 && (octets[1] >= 64 && octets[1] <= 127)
+        }
+        IpAddr::V6(v6) => {
+            let segments = v6.segments();
+            segments[0] == 0xfd7a && segments[1] == 0x115c && segments[2] == 0xa1e0
+        }
+    }
+}
+
+pub fn is_private_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_private(),
+        IpAddr::V6(v6) => (v6.segments()[0] & 0xfe00) == 0xfc00,
+    }
+}
+
+pub fn format_host_ip(ip: &IpAddr) -> String {
+    match ip {
+        IpAddr::V4(v4) => v4.to_string(),
+        IpAddr::V6(v6) => format!("[{}]", v6),
+    }
+}
+
+pub fn format_endpoint_url(scheme: &str, ip: &IpAddr, port: u16) -> String {
+    format!("{}://{}:{}", scheme, format_host_ip(ip), port)
 }
 
 pub fn is_virtual_adapter(name: &str) -> bool {
@@ -32,16 +65,23 @@ pub fn is_virtual_adapter(name: &str) -> bool {
 }
 
 fn interface_priority(info: &NetworkInterfaceInfo) -> u32 {
-    let is_priv = info.ip.is_private();
+    let is_priv = is_private_ip(&info.ip);
     let is_ts = is_tailscale_ip(&info.ip);
+    let is_v4 = info.ip.is_ipv4();
 
-    match (info.is_virtual, is_priv, is_ts) {
-        (false, true, _) => 100, // Physical LAN (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
-        (false, false, true) => 80, // Tailscale / Overlay
-        (false, false, false) => 60, // Other physical (e.g. public or custom)
-        (true, true, _) => 40,   // Virtual LAN (e.g. WSL, Hyper-V virtual switch)
-        (true, false, true) => 30, // Virtual Tailscale
-        (true, false, false) => 20, // Other virtual
+    let base_prio = match (info.is_virtual, is_priv, is_ts) {
+        (false, true, _) => 100,
+        (false, false, true) => 80,
+        (false, false, false) => 60,
+        (true, true, _) => 40,
+        (true, false, true) => 30,
+        (true, false, false) => 20,
+    };
+
+    if is_v4 {
+        base_prio + 1
+    } else {
+        base_prio
     }
 }
 
@@ -70,15 +110,29 @@ pub fn discover_network_interfaces() -> Result<Vec<NetworkInterfaceInfo>, std::i
 
     let mut raw_interfaces = Vec::new();
     for iface in if_addrs_list {
-        if let if_addrs::IfAddr::V4(ref v4_addr) = iface.addr {
-            let is_virt = is_virtual_adapter(&iface.name);
-            let loopback = iface.is_loopback() || is_loopback(&v4_addr.ip);
-            raw_interfaces.push(NetworkInterfaceInfo {
-                name: iface.name,
-                ip: v4_addr.ip,
-                is_loopback: loopback,
-                is_virtual: is_virt,
-            });
+        match iface.addr {
+            if_addrs::IfAddr::V4(ref v4_addr) => {
+                let is_virt = is_virtual_adapter(&iface.name);
+                let ip = IpAddr::V4(v4_addr.ip);
+                let loopback = iface.is_loopback() || is_loopback(&ip);
+                raw_interfaces.push(NetworkInterfaceInfo {
+                    name: iface.name,
+                    ip,
+                    is_loopback: loopback,
+                    is_virtual: is_virt,
+                });
+            }
+            if_addrs::IfAddr::V6(ref v6_addr) => {
+                let is_virt = is_virtual_adapter(&iface.name);
+                let ip = IpAddr::V6(v6_addr.ip);
+                let loopback = iface.is_loopback() || is_loopback(&ip);
+                raw_interfaces.push(NetworkInterfaceInfo {
+                    name: iface.name,
+                    ip,
+                    is_loopback: loopback,
+                    is_virtual: is_virt,
+                });
+            }
         }
     }
 

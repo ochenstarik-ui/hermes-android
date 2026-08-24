@@ -2,11 +2,11 @@ use crate::config::AppConfig;
 use crate::hermes::{HermesProbeClient, ProbeState};
 use crate::identity::{get_display_name, get_host_id};
 use crate::models::NetworkInterfaceInfo;
-use crate::network::discover_network_interfaces;
-use crate::pairing::{create_pairing_payload, encode_pairing_uri, validate_ttl};
+use crate::network::{discover_network_interfaces, format_host_ip};
+use crate::pairing::{create_pairing_payload, current_unix_timestamp, encode_pairing_uri, validate_ttl};
 use crate::qr::render_terminal_qr;
 use clap::{Args, Parser, Subcommand};
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -35,13 +35,21 @@ pub struct CliArgs {
     #[arg(long = "hermes-url")]
     pub hermes_url: Option<String>,
 
-    /// Specific network interface name or IPv4 address to advertise
+    /// Specific network interface name or IP address to advertise
     #[arg(long, short = 'i')]
     pub interface: Option<String>,
 
     /// Pairing QR validity TTL in seconds (default 120, range 10..=600)
     #[arg(long, default_value = "120")]
     pub ttl: u64,
+
+    /// Override or configure host display name
+    #[arg(long = "display-name")]
+    pub display_name: Option<String>,
+
+    /// Reset persistent host UUID to a fresh value
+    #[arg(long = "reset-host-id")]
+    pub reset_host_id: bool,
 
     #[command(subcommand)]
     pub command: Option<CliCommand>,
@@ -63,13 +71,21 @@ pub struct QrArgs {
     #[arg(long = "hermes-url")]
     pub hermes_url: Option<String>,
 
-    /// Specific network interface name or IPv4 address
+    /// Specific network interface name or IP address
     #[arg(long, short = 'i')]
     pub interface: Option<String>,
 
     /// Pairing QR validity TTL in seconds (range 10..=600)
     #[arg(long)]
     pub ttl: Option<u64>,
+
+    /// Override or configure host display name
+    #[arg(long = "display-name")]
+    pub display_name: Option<String>,
+
+    /// Reset persistent host UUID to a fresh value
+    #[arg(long = "reset-host-id")]
+    pub reset_host_id: bool,
 }
 
 /// Parses a Hermes URL into its scheme, host, and port components.
@@ -108,20 +124,21 @@ pub fn resolve_cli_endpoint(
     }
 }
 
-/// Resolves the selected IPv4 address based on user input or automatic interface detection.
+/// Resolves the selected IP address based on user input or automatic interface detection.
 pub fn resolve_selected_ip(
     explicit_interface: Option<&str>,
     interfaces: &[NetworkInterfaceInfo],
-) -> (String, Ipv4Addr) {
+) -> (String, IpAddr) {
     if let Some(target) = explicit_interface {
-        if let Ok(ip) = Ipv4Addr::from_str(target) {
-            return (format!("Manual ({})", ip), ip);
+        let trimmed_target = target.trim().trim_start_matches('[').trim_end_matches(']');
+        if let Ok(ip) = IpAddr::from_str(trimmed_target) {
+            return (format!("Manual ({})", format_host_ip(&ip)), ip);
         }
 
         let lower = target.to_lowercase();
         if let Some(matched) = interfaces
             .iter()
-            .find(|i| i.name.to_lowercase().contains(&lower) || i.ip.to_string() == target)
+            .find(|i| i.name.to_lowercase().contains(&lower) || i.ip.to_string() == target || format_host_ip(&i.ip) == target)
         {
             return (matched.name.clone(), matched.ip);
         }
@@ -131,7 +148,7 @@ pub fn resolve_selected_ip(
         return (first.name.clone(), first.ip);
     }
 
-    ("Loopback".to_string(), Ipv4Addr::new(127, 0, 0, 1))
+    ("Loopback".to_string(), IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)))
 }
 
 /// Runs single-shot terminal output mode.
@@ -167,7 +184,7 @@ pub async fn run_once(
             let payload = create_pairing_payload(
                 host_id.clone(),
                 display_name.clone(),
-                host_ip.to_string(),
+                format_host_ip(&host_ip),
                 port,
                 scheme.to_string(),
                 ttl,
@@ -184,7 +201,7 @@ pub async fn run_once(
             };
 
             println!("Host: {}", display_name);
-            println!("Address: {}://{}:{}", scheme, host_ip, port);
+            println!("Address: {}://{}:{}", scheme, format_host_ip(&host_ip), port);
             println!("Host ID: {}", short_id);
             println!("Expires in: {:02}:{:02}", ttl / 60, ttl % 60);
             println!("\n{}", qr_rendered);
@@ -215,7 +232,7 @@ pub async fn run_once(
     }
 }
 
-/// Runs interactive terminal UI mode that updates in a loop.
+/// Runs interactive terminal UI mode that updates in a loop with stable QR generation.
 pub async fn run_terminal_loop(
     config: &AppConfig,
     hermes_url: Option<&str>,
@@ -226,22 +243,45 @@ pub async fn run_terminal_loop(
 ) -> Result<(), Box<dyn std::error::Error>> {
     validate_ttl(ttl)?;
 
-    let mut last_generated_at = std::time::Instant::now();
     let client = HermesProbeClient::new();
+    let host_id = get_host_id(config);
+    let display_name = get_display_name(config);
+
+    let interfaces = discover_network_interfaces().unwrap_or_default();
+    let (_iface_name, mut current_host_ip) = resolve_selected_ip(explicit_interface, &interfaces);
+
+    let mut payload = create_pairing_payload(
+        host_id.clone(),
+        display_name.clone(),
+        format_host_ip(&current_host_ip),
+        port,
+        scheme.to_string(),
+        ttl,
+    );
+    let mut uri = encode_pairing_uri(&payload);
+    let mut qr_rendered = render_terminal_qr(&uri).unwrap_or_default();
 
     loop {
-        let now = std::time::Instant::now();
-        let elapsed = now.duration_since(last_generated_at).as_secs();
-
+        let now_ts = current_unix_timestamp();
         let interfaces = discover_network_interfaces().unwrap_or_default();
-        let (_iface_name, host_ip) = resolve_selected_ip(explicit_interface, &interfaces);
+        let (_iface_name, new_host_ip) = resolve_selected_ip(explicit_interface, &interfaces);
 
-        if elapsed >= ttl {
-            last_generated_at = std::time::Instant::now();
+        if now_ts >= payload.expires_at || new_host_ip != current_host_ip {
+            current_host_ip = new_host_ip;
+            payload = create_pairing_payload(
+                host_id.clone(),
+                display_name.clone(),
+                format_host_ip(&current_host_ip),
+                port,
+                scheme.to_string(),
+                ttl,
+            );
+            uri = encode_pairing_uri(&payload);
+            qr_rendered = render_terminal_qr(&uri).unwrap_or_default();
         }
-        let remaining = ttl.saturating_sub(now.duration_since(last_generated_at).as_secs());
 
-        let probe_state = client.probe(hermes_url, scheme, port, Some(host_ip)).await;
+        let remaining = payload.expires_at.saturating_sub(now_ts);
+        let probe_state = client.probe(hermes_url, scheme, port, Some(current_host_ip)).await;
 
         // Clear terminal screen (cross-platform ANSI)
         print!("\x1B[2J\x1B[1;1H");
@@ -256,22 +296,10 @@ pub async fn run_terminal_loop(
                 };
                 println!("Hermes: Running (v{}, Auth: {})", ver, auth);
 
-                let payload = create_pairing_payload(
-                    get_host_id(config),
-                    get_display_name(config),
-                    host_ip.to_string(),
-                    port,
-                    scheme.to_string(),
-                    ttl,
-                );
-                let uri = encode_pairing_uri(&payload);
-                let qr_rendered = render_terminal_qr(&uri).unwrap_or_default();
-
-                let host_id = &payload.host_id;
-                let short_id = if host_id.len() >= 8 {
-                    format!("{}...", &host_id[..8])
+                let short_id = if payload.host_id.len() >= 8 {
+                    format!("{}...", &payload.host_id[..8])
                 } else {
-                    host_id.clone()
+                    payload.host_id.clone()
                 };
 
                 println!("Host: {}", payload.name);
@@ -291,14 +319,14 @@ pub async fn run_terminal_loop(
                     port
                 );
                 println!("\n[QR Code hidden: Hermes is unreachable over LAN]");
-                println!("Address: {}://{}:{}", scheme, host_ip, port);
+                println!("Address: {}://{}:{}", scheme, format_host_ip(&current_host_ip), port);
                 println!("Retrying probe every second...");
             }
             ProbeState::Offline(err) => {
                 println!("Hermes: Offline ({})", err);
                 println!("⚠️  Hermes Agent is unreachable. Please start Hermes.");
                 println!("\n[QR Code hidden: Hermes is offline]");
-                println!("Address: {}://{}:{}", scheme, host_ip, port);
+                println!("Address: {}://{}:{}", scheme, format_host_ip(&current_host_ip), port);
                 println!("Retrying probe every second...");
             }
         }

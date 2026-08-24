@@ -2,13 +2,14 @@ use eframe::egui::{Color32, ColorImage};
 use qrcode::{Color, QrCode};
 
 pub type QrError = qrcode::types::QrError;
+pub const QR_QUIET_ZONE: usize = 4;
 
-/// Generates a 2D boolean matrix of QR modules (true = dark, false = light) including a quiet zone.
+/// Generates a 2D boolean matrix of QR modules (true = dark, false = light) including a quiet zone of 4 modules.
 pub fn generate_qr_matrix(data: &str) -> Result<Vec<Vec<bool>>, QrError> {
     let code = QrCode::new(data.as_bytes())?;
     let colors = code.to_colors();
     let width = code.width();
-    let quiet_zone = 2;
+    let quiet_zone = QR_QUIET_ZONE;
     let total_size = width + quiet_zone * 2;
 
     let mut matrix = vec![vec![false; total_size]; total_size];
@@ -23,18 +24,16 @@ pub fn generate_qr_matrix(data: &str) -> Result<Vec<Vec<bool>>, QrError> {
     Ok(matrix)
 }
 
-/// Renders a terminal-friendly QR code using Unicode full blocks and ANSI colors.
+/// Renders a terminal-friendly QR code using Unicode full blocks and ANSI colors with a 4-module quiet zone.
 pub fn render_terminal_qr(data: &str) -> Result<String, QrError> {
     let code = QrCode::new(data.as_bytes())?;
     let colors = code.to_colors();
     let width = code.width();
-    let quiet_zone = 2;
+    let quiet_zone = QR_QUIET_ZONE;
     let total_size = width + quiet_zone * 2;
 
     let mut out = String::new();
 
-    // Render using ANSI inverted / double-width blocks for standard aspect ratio
-    // Dark modules: "██", Light modules: "  "
     for y in 0..total_size {
         for x in 0..total_size {
             let is_dark = if x >= quiet_zone
@@ -61,12 +60,12 @@ pub fn render_terminal_qr(data: &str) -> Result<String, QrError> {
     Ok(out)
 }
 
-/// Renders a high-contrast ColorImage for egui rendering with a quiet zone and configurable scale.
+/// Renders a high-contrast ColorImage for egui rendering with a 4-module quiet zone and configurable scale.
 pub fn render_egui_image(data: &str, scale: usize) -> Result<ColorImage, QrError> {
     let code = QrCode::new(data.as_bytes())?;
     let colors = code.to_colors();
     let width = code.width();
-    let quiet_zone = 3;
+    let quiet_zone = QR_QUIET_ZONE;
     let total_modules = width + quiet_zone * 2;
 
     let scale = scale.max(1);

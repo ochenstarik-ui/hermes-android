@@ -2,13 +2,38 @@ use clap::Parser;
 use eframe::egui::Vec2;
 use hermes_pair::app::HermesPairApp;
 use hermes_pair::cli::{resolve_cli_endpoint, run_once, run_terminal_loop, CliArgs, CliCommand};
-use hermes_pair::config::load_or_create_config;
+use hermes_pair::config::{get_config_path, load_or_create_config, save_config_to_path};
 use hermes_pair::pairing::validate_ttl;
+use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = CliArgs::parse();
-    let config = load_or_create_config()?;
+    let mut config = load_or_create_config()?;
+
+    // Handle CLI flags --reset-host-id and --display-name
+    let reset_id = args.reset_host_id
+        || matches!(args.command, Some(CliCommand::Qr(ref qr_args)) if qr_args.reset_host_id);
+    let explicit_name = args.display_name.clone().or_else(|| {
+        if let Some(CliCommand::Qr(ref qr_args)) = args.command {
+            qr_args.display_name.clone()
+        } else {
+            None
+        }
+    });
+
+    let mut config_modified = false;
+    if reset_id {
+        config.host_id = Uuid::new_v4().to_string();
+        config_modified = true;
+    }
+    if let Some(name) = explicit_name {
+        config.display_name = Some(name);
+        config_modified = true;
+    }
+    if config_modified {
+        save_config_to_path(&config, &get_config_path())?;
+    }
 
     if let Some(CliCommand::Qr(ref qr_args)) = args.command {
         let hermes_url = qr_args.hermes_url.as_deref().or(args.hermes_url.as_deref());

@@ -163,3 +163,18 @@ interface UnifiedSessionDao {
     @Query("UPDATE host_bindings SET state = :state WHERE sessionId = :sessionId AND hostId = :hostId")
     suspend fun updateBindingState(sessionId: String, hostId: String, state: String)
 }
+
+@Dao
+interface UsedNonceDao {
+    @Query("SELECT EXISTS(SELECT 1 FROM used_nonces WHERE nonce = :nonce LIMIT 1)")
+    suspend fun isNonceUsed(nonce: String): Boolean
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertNonce(entity: UsedNonceEntity)
+
+    @Query("DELETE FROM used_nonces WHERE expiresAt < :now")
+    suspend fun purgeExpiredNonces(now: Long)
+
+    @Query("SELECT * FROM used_nonces")
+    suspend fun getAllNonces(): List<UsedNonceEntity>
+}

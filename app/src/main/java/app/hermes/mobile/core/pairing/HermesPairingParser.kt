@@ -1,112 +1,152 @@
 package app.hermes.mobile.core.pairing
 
 import kotlinx.serialization.json.Json
-import java.net.URI
+import java.net.URLDecoder
 import java.util.Base64
 import java.util.UUID
 
 object HermesPairingParser {
 
     private val json = Json { ignoreUnknownKeys = true }
+    private val uuidRegex = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
-    fun parse(rawUri: String): PairingValidationResult {
-        try {
-            if (rawUri.toByteArray(Charsets.UTF_8).size > 4096) {
-                return PairingValidationResult.InvalidPayload("URI exceeds maximum length of 4096 bytes")
-            }
-
-            val uri = URI(rawUri)
-            if (uri.scheme != "hermes" || uri.host != "pair") {
-                return PairingValidationResult.InvalidPayload("Invalid scheme or host")
-            }
-
-            val query = uri.query
-            val dataParams = query?.split("&")?.map { it.split("=") }?.firstOrNull { it[0] == "data" }
-            val data = if (dataParams != null && dataParams.size > 1) dataParams[1] else null
-            if (data == null) {
-                return PairingValidationResult.InvalidPayload("Missing data parameter")
-            }
-
-            val decodedBytes = try {
-                Base64.getUrlDecoder().decode(data)
-            } catch (e: IllegalArgumentException) {
-                return PairingValidationResult.InvalidPayload("Malformed Base64")
-            }
-
-            if (decodedBytes.size > 2048) {
-                return PairingValidationResult.InvalidPayload("Decoded payload exceeds 2048 bytes")
-            }
-
-            val jsonString = String(decodedBytes, Charsets.UTF_8)
-            val payload = try {
-                json.decodeFromString<HermesPairingPayload>(jsonString)
-            } catch (e: Exception) {
-                return PairingValidationResult.InvalidPayload("Invalid JSON payload")
-            }
-
-            if (payload.v != 1) {
-                return PairingValidationResult.InvalidVersion(payload.v)
-            }
-            if (payload.type != "hermes-pair") {
-                return PairingValidationResult.InvalidPayload("Invalid type")
-            }
-            try {
-                val uuid = UUID.fromString(payload.hostId)
-                if (uuid.toString() != payload.hostId.lowercase()) {
-                    return PairingValidationResult.InvalidPayload("host_id must be a valid UUID string")
-                }
-            } catch (e: IllegalArgumentException) {
-                return PairingValidationResult.InvalidPayload("Invalid host_id")
-            }
-            
-            if (payload.name.isBlank()) {
-                return PairingValidationResult.InvalidPayload("Name is empty")
-            }
-            val trimmedName = payload.name.trim()
-            if (trimmedName.length > 128) {
-                return PairingValidationResult.InvalidPayload("Name exceeds 128 characters")
-            }
-            if (payload.name.any { it in '\u0000'..'\u001F' || it in '\u007F'..'\u009F' }) {
-                return PairingValidationResult.InvalidPayload("Name contains control characters")
-            }
-
-            if (payload.host.isBlank()) {
-                return PairingValidationResult.InvalidPayload("Host is empty")
-            }
-            if (payload.host.any { it.isWhitespace() || it == '/' || it == '\\' || it == '?' || it == '#' || it == '@' || it == ':' || it in '\u0000'..'\u001F' || it in '\u007F'..'\u009F' }) {
-                return PairingValidationResult.InvalidPayload("Host contains invalid characters")
-            }
-
-            if (payload.port !in 1..65535) {
-                return PairingValidationResult.InvalidPayload("Invalid port")
-            }
-            if (payload.scheme != "http" && payload.scheme != "https") {
-                return PairingValidationResult.InvalidScheme("Scheme must be http or https")
-            }
-
-            if (payload.nonce.isBlank()) {
-                return PairingValidationResult.InvalidPayload("Nonce is empty")
-            }
-            val nonceBytes = try {
-                Base64.getUrlDecoder().decode(payload.nonce)
-            } catch (e: IllegalArgumentException) {
-                return PairingValidationResult.InvalidPayload("Nonce must be valid Base64URL")
-            }
-            if (nonceBytes.size < 16 || nonceBytes.size > 64) {
-                return PairingValidationResult.InvalidPayload("Nonce must decode to between 16 and 64 bytes")
-            }
-
-            val now = System.currentTimeMillis() / 1000
-            if (payload.expiresAt < now - 30) {
-                return PairingValidationResult.Expired(payload.expiresAt)
-            }
-            if (payload.expiresAt > now + 600) {
-                return PairingValidationResult.InvalidPayload("Expiry exceeds maximum TTL of 600 seconds")
-            }
-
-            return PairingValidationResult.Success(payload)
-        } catch (e: Exception) {
-            return PairingValidationResult.InvalidPayload("Unknown error: ${e.message}")
+    fun parse(rawUri: String, currentTimeSeconds: Long = System.currentTimeMillis() / 1000): PairingResult {
+        if (rawUri.toByteArray(Charsets.UTF_8).size > 4096) {
+            return PairingResult.Failure(PairingError.PayloadTooLarge("URI exceeds maximum length of 4096 bytes"))
         }
+
+        val trimmedUri = rawUri.trim()
+        val isValidPrefix = trimmedUri.startsWith("hermes://pair?", ignoreCase = true) ||
+                trimmedUri.startsWith("hermes:/pair?", ignoreCase = true) ||
+                trimmedUri.equals("hermes://pair", ignoreCase = true) ||
+                trimmedUri.equals("hermes:/pair", ignoreCase = true)
+
+        if (!isValidPrefix) {
+            return PairingResult.Failure(PairingError.InvalidUriFormat("URI does not match hermes://pair or hermes:/pair"))
+        }
+
+        val queryIndex = trimmedUri.indexOf('?')
+        if (queryIndex == -1) {
+            return PairingResult.Failure(PairingError.MissingDataParam("Missing 'data' query parameter"))
+        }
+        val queryString = trimmedUri.substring(queryIndex + 1)
+
+        var dataParamValue: String? = null
+        for (segment in queryString.split('&')) {
+            if (segment.isEmpty()) continue
+            val equalsIndex = segment.indexOf('=')
+            val key: String
+            val value: String
+            if (equalsIndex != -1) {
+                key = URLDecoder.decode(segment.substring(0, equalsIndex), "UTF-8")
+                value = URLDecoder.decode(segment.substring(equalsIndex + 1), "UTF-8")
+            } else {
+                key = URLDecoder.decode(segment, "UTF-8")
+                value = ""
+            }
+            if (key == "data") {
+                dataParamValue = value
+                break
+            }
+        }
+
+        if (dataParamValue == null) {
+            return PairingResult.Failure(PairingError.MissingDataParam("Missing 'data' query parameter"))
+        }
+        if (dataParamValue.isEmpty()) {
+            return PairingResult.Failure(PairingError.EmptyData("Empty 'data' query parameter"))
+        }
+
+        val decodedBytes = try {
+            Base64.getUrlDecoder().decode(dataParamValue)
+        } catch (_: IllegalArgumentException) {
+            try {
+                Base64.getDecoder().decode(dataParamValue)
+            } catch (_: IllegalArgumentException) {
+                return PairingResult.Failure(PairingError.Base64DecodeError("Failed to decode Base64 data"))
+            }
+        }
+
+        if (decodedBytes.size > 2048) {
+            return PairingResult.Failure(PairingError.PayloadTooLarge("Decoded payload exceeds 2048 bytes"))
+        }
+
+        val jsonString = String(decodedBytes, Charsets.UTF_8)
+        val payload = try {
+            json.decodeFromString<PairingPayloadV1>(jsonString)
+        } catch (_: Exception) {
+            return PairingResult.Failure(PairingError.JsonSyntaxError("Malformed JSON payload"))
+        }
+
+        if (payload.v != 1) {
+            return PairingResult.Failure(PairingError.UnsupportedProtocolVersion(payload.v))
+        }
+        if (payload.type != "hermes-pair") {
+            return PairingResult.Failure(PairingError.InvalidPayloadType(payload.type))
+        }
+
+        try {
+            UUID.fromString(payload.hostId)
+            if (!uuidRegex.matches(payload.hostId)) {
+                return PairingResult.Failure(PairingError.InvalidHostId(payload.hostId))
+            }
+        } catch (_: IllegalArgumentException) {
+            return PairingResult.Failure(PairingError.InvalidHostId(payload.hostId))
+        }
+
+        if (payload.name.isBlank()) {
+            return PairingResult.Failure(PairingError.InvalidName("Name cannot be blank"))
+        }
+        val trimmedName = payload.name.trim()
+        if (trimmedName.length > 128) {
+            return PairingResult.Failure(PairingError.InvalidName("Name exceeds 128 characters"))
+        }
+        if (payload.name.any { it in '\u0000'..'\u001F' || it in '\u007F'..'\u009F' }) {
+            return PairingResult.Failure(PairingError.InvalidName("Name contains control characters"))
+        }
+
+        if (payload.host.isBlank()) {
+            return PairingResult.Failure(PairingError.EmptyHost("Host address cannot be empty"))
+        }
+        val hostTrimmed = payload.host.trim()
+        if (hostTrimmed.any { it.isWhitespace() || it == '/' || it == '\\' || it == '?' || it == '#' || it == '@' || it in '\u0000'..'\u001F' || it in '\u007F'..'\u009F' }) {
+            return PairingResult.Failure(PairingError.InvalidHost("Host contains invalid characters"))
+        }
+        if (!hostTrimmed.startsWith("[") || !hostTrimmed.endsWith("]")) {
+            if (hostTrimmed.contains(":")) {
+                return PairingResult.Failure(PairingError.InvalidHost("Port must not be included in host field"))
+            }
+        }
+
+        if (payload.port !in 1..65535) {
+            return PairingResult.Failure(PairingError.InvalidPort(payload.port))
+        }
+
+        val schemeLower = payload.scheme.lowercase()
+        if (schemeLower != "http" && schemeLower != "https") {
+            return PairingResult.Failure(PairingError.InvalidScheme(payload.scheme))
+        }
+
+        if (payload.nonce.isBlank()) {
+            return PairingResult.Failure(PairingError.InvalidNonce("Nonce is empty"))
+        }
+        val nonceBytes = try {
+            Base64.getUrlDecoder().decode(payload.nonce)
+        } catch (_: IllegalArgumentException) {
+            try {
+                Base64.getDecoder().decode(payload.nonce)
+            } catch (_: IllegalArgumentException) {
+                return PairingResult.Failure(PairingError.InvalidNonce("Nonce is not valid Base64"))
+            }
+        }
+        if (nonceBytes.size != 16) {
+            return PairingResult.Failure(PairingError.InvalidNonce("Nonce length is ${nonceBytes.size} bytes, expected 16 bytes"))
+        }
+
+        if (payload.expiresAt < currentTimeSeconds - 30) {
+            return PairingResult.Failure(PairingError.ExpiredPayload(payload.expiresAt))
+        }
+
+        return PairingResult.Success(payload)
     }
 }

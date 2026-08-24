@@ -78,6 +78,13 @@ data class UnifiedMessageEntity(
     val isStreaming: Boolean = false
 )
 
+@Entity(tableName = "used_nonces")
+data class UsedNonceEntity(
+    @PrimaryKey val nonce: String,
+    val expiresAt: Long,
+    val usedAt: Long = System.currentTimeMillis()
+)
+
 data class UnifiedSessionWithDetails(
     val session: UnifiedSessionEntity,
     val bindings: List<HostBindingEntity> = emptyList(),
