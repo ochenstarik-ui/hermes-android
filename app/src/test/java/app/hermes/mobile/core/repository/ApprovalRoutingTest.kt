@@ -11,7 +11,9 @@ import app.hermes.mobile.core.storage.FakeUnifiedSessionDao
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -204,10 +206,8 @@ class ApprovalRoutingTest {
         }
         runtime1.gatewayClient.handleIncomingMessage(prodEventJson.toString())
 
-        var waited = 0
-        while (testRepo.activeApprovals.value.isEmpty() && waited < 50) {
-            kotlinx.coroutines.delay(50)
-            waited++
+        withTimeout(5000) {
+            testRepo.activeApprovals.first { it.isNotEmpty() }
         }
 
         assertEquals(1, testRepo.activeApprovals.value.size)

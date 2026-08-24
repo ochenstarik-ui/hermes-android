@@ -6,6 +6,7 @@ import app.hermes.mobile.core.model.RuntimeSessionId
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import okhttp3.Response
@@ -77,12 +78,12 @@ class JsonRpcGatewayClientTest {
 
     @Test
     fun testGatewayReadyStateTransition() = runBlocking {
-        var serverWebSocket: WebSocket? = null
+        val serverWsDeferred = CompletableDeferred<WebSocket>()
 
         server.enqueue(
             MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    serverWebSocket = webSocket
+                    serverWsDeferred.complete(webSocket)
                     // Do not send gateway.ready immediately
                 }
 
@@ -94,23 +95,20 @@ class JsonRpcGatewayClientTest {
         val wsUrl = "ws://${server.hostName}:${server.port}/api/ws"
         client.connect(wsUrl, allowCleartext = true)
 
-        // Give WS a moment to open transport
-        var retries = 0
-        while (serverWebSocket == null && retries < 50) {
-            kotlinx.coroutines.delay(50)
-            retries++
+        val serverWebSocket = withTimeout(5000) {
+            serverWsDeferred.await()
         }
         
         // Must still be Connecting before gateway.ready is received
         assertEquals(ConnectionState.Connecting, client.connectionState.value)
 
         // Send gateway.ready
-        serverWebSocket?.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0","session_count":1}}}""")
+        serverWebSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0","session_count":1}}}""")
 
         client.awaitGatewayReady(5000)
         assertEquals(ConnectionState.Connected, client.connectionState.value)
 
-        serverWebSocket?.close(1000, "done")
+        serverWebSocket.close(1000, "done")
         client.disconnect()
     }
 

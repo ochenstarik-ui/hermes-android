@@ -1,13 +1,22 @@
 package app.hermes.mobile.core.network
 
-import app.hermes.mobile.core.model.DurableSessionId
-import app.hermes.mobile.core.model.HermesConnection
-import app.hermes.mobile.core.model.MessageRole
-import app.hermes.mobile.core.repository.HermesGatewayRepository
+import app.hermes.mobile.core.model.*
+import app.hermes.mobile.core.repository.UnifiedSessionRepository
+import app.hermes.mobile.core.runtime.HermesConnectionManager
 import app.hermes.mobile.core.security.InMemoryTokenVault
+import app.hermes.mobile.core.storage.FakeHostDao
+import app.hermes.mobile.core.storage.FakeUnifiedSessionDao
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -29,9 +38,12 @@ class EndToEndContractScenarioTest {
 
     private lateinit var server: MockWebServer
     private lateinit var restClient: HermesRestClient
-    private lateinit var gatewayClient: JsonRpcGatewayClient
+    private lateinit var hostDao: FakeHostDao
+    private lateinit var sessionDao: FakeUnifiedSessionDao
     private lateinit var tokenVault: InMemoryTokenVault
-    private lateinit var repository: HermesGatewayRepository
+    private lateinit var testScope: CoroutineScope
+    private lateinit var connectionManager: HermesConnectionManager
+    private lateinit var repository: UnifiedSessionRepository
 
     private var serverWs: WebSocket? = null
     private val wsConnectedLatch = CountDownLatch(1)
@@ -40,15 +52,28 @@ class EndToEndContractScenarioTest {
     fun setUp() {
         server = MockWebServer()
         restClient = HermesRestClient()
-        gatewayClient = JsonRpcGatewayClient()
+        hostDao = FakeHostDao()
+        sessionDao = FakeUnifiedSessionDao()
         tokenVault = InMemoryTokenVault()
-        repository = HermesGatewayRepository(restClient, gatewayClient, tokenVault)
+        testScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+        connectionManager = HermesConnectionManager(
+            hostDao = hostDao,
+            tokenVault = tokenVault,
+            restClient = restClient,
+            scope = testScope
+        )
+        repository = UnifiedSessionRepository(
+            connectionManager = connectionManager,
+            sessionDao = sessionDao,
+            scope = testScope
+        )
     }
 
     @After
     fun tearDown() {
         serverWs?.close(1000, "done")
-        repository.disconnect()
+        testScope.cancel()
         try {
             server.shutdown()
         } catch (_: Exception) {
@@ -93,12 +118,17 @@ class EndToEndContractScenarioTest {
                             }
 
                             override fun onMessage(webSocket: WebSocket, text: String) {
-                                if (text.contains("session.list")) {
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a1","result":[{"id":"durable_100","title":"Existing Session","preview":"Hello!","started_at":1700000000,"message_count":2,"source":"android"}]}""")
-                                } else if (text.contains("session.create")) {
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a2","result":{"stored_session_id":"durable_101","session_id":"runtime_202"}}""")
+                                val reqId = try {
+                                    val root = Json.decodeFromString<JsonObject>(text)
+                                    root["id"]?.jsonPrimitive?.content ?: "1"
+                                } catch (_: Exception) {
+                                    "1"
+                                }
+
+                                if (text.contains("session.create")) {
+                                    webSocket.send("""{"jsonrpc":"2.0","id":"$reqId","result":{"stored_session_id":"durable_101","session_id":"runtime_202"}}""")
                                 } else if (text.contains("prompt.submit")) {
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a3","result":{"turn_id":"turn_001"}}""")
+                                    webSocket.send("""{"jsonrpc":"2.0","id":"$reqId","result":{"turn_id":"turn_001"}}""")
                                     // Emit streaming events
                                     webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"message.start","session_id":"runtime_202","payload":{"message_id":"msg_resp_1","role":"assistant"}}}""")
                                     webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"message.delta","session_id":"runtime_202","payload":{"message_id":"msg_resp_1","delta":"Sure, I can "}}}""")
@@ -108,7 +138,7 @@ class EndToEndContractScenarioTest {
                                     webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"tool.complete","session_id":"runtime_202","payload":{"tool_id":"t_exec","result":"file1.txt\nfile2.txt","is_error":false}}}""")
                                     webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"approval.request","session_id":"runtime_202","payload":{"request_id":"app_req_1","command":"git status","description":"Run git status","choices":["once","deny"]}}}""")
                                 } else if (text.contains("approval.respond")) {
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a4","result":{"accepted":true}}""")
+                                    webSocket.send("""{"jsonrpc":"2.0","id":"$reqId","result":{"accepted":true}}""")
                                     webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"message.complete","session_id":"runtime_202","payload":{"message_id":"msg_resp_1","content":"Sure, I can run that tool. Done!"}}}""")
                                 }
                             }
@@ -119,88 +149,95 @@ class EndToEndContractScenarioTest {
             }
         }
 
-        val conn = HermesConnection(
-            id = "test_conn_1",
-            name = "Test Server",
+        val hostId = HermesHostId("test_host_1")
+        val host = HermesHost(
+            id = hostId,
+            displayName = "Test Server",
             baseUrl = serverUrl,
             allowCleartext = true
         )
 
         // 1. Status check
-        val statusRes = repository.checkStatus(conn)
+        val statusRes = restClient.getStatus(host.baseUrl, allowCleartext = host.allowCleartext)
         assertTrue(statusRes.isSuccess)
         val status = statusRes.getOrThrow()
         assertTrue(status.authRequired)
 
         // 2. Token exchange fixture
         val exchangeRes = restClient.exchangeNativeToken(
-            baseUrl = conn.baseUrl,
+            baseUrl = host.baseUrl,
             code = "auth_code_123",
             codeVerifier = "code_verifier_123",
-            allowCleartext = true
+            allowCleartext = host.allowCleartext
         )
         assertTrue(exchangeRes.isSuccess)
         val tokens = exchangeRes.getOrThrow()
-        tokenVault.saveTokens(conn.id, tokens)
+        tokenVault.saveTokens(host.id.value, tokens)
 
-        // 3 & 4. Connect repository
-        val connectRes = repository.connect(conn)
+        // 3. Add host & connect
+        connectionManager.addHost(host)
+        val connectRes = connectionManager.connectHost(host.id)
         assertTrue(connectRes.isSuccess)
 
         assertTrue(wsConnectedLatch.await(5, TimeUnit.SECONDS))
-        val state = withTimeout(5000) {
-            repository.connectionState.first { it is ConnectionState.Connected }
-        }
-        assertTrue(state is ConnectionState.Connected)
-
-        // 6. List sessions
-        val sessionList = repository.listSessions()
-        assertEquals(1, sessionList.size)
-        assertEquals(DurableSessionId("durable_100"), sessionList[0].id)
-
-        // 7. Create new session
-        val createResult = repository.startNewSession()
-        assertEquals(DurableSessionId("durable_101"), createResult.durableId)
-        assertEquals(repository.activeDurableId.value, DurableSessionId("durable_101"))
-
-        // 8. Submit user prompt
-        val submitRes = repository.sendUserPrompt("Run git status")
-        assertTrue(submitRes.accepted)
-
-        // Wait for streaming delta and approval request
-        withTimeout(5000) {
-            while (repository.messages.value.none { it.role == MessageRole.ASSISTANT && it.content.isNotEmpty() }) {
-                kotlinx.coroutines.delay(50)
+        val hostOnline = withTimeout(5000) {
+            hostDao.getHostsFlow().first { hosts ->
+                hosts.any { it.id == host.id.value && it.lastKnownStatus == HostStatus.ONLINE.name }
             }
         }
+        assertNotNull(hostOnline)
 
-        val assistantMsg = repository.messages.value.find { it.role == MessageRole.ASSISTANT }
+        // 4. Create new Unified Session
+        val session = repository.createUnifiedSession(title = "Existing Session", initialHostId = host.id)
+        assertEquals(host.id, session.activeHostId)
+
+        // 5. Submit user prompt
+        val turnId = repository.sendPrompt(session.id, "Run git status")
+        assertEquals("turn_001", turnId)
+
+        // 6. Wait for streaming delta
+        val assistantMsg = withTimeout(5000) {
+            repository.getSessionMessages(session.id).first { msgs ->
+                msgs.any { it.role == MessageRole.ASSISTANT && it.content.isNotEmpty() }
+            }.find { it.role == MessageRole.ASSISTANT }
+        }
         assertNotNull(assistantMsg)
         assertTrue(assistantMsg!!.content.contains("Sure, I can"))
 
-        withTimeout(5000) {
-            while (repository.activeApprovals.value.isEmpty()) {
-                kotlinx.coroutines.delay(50)
-            }
+        // 7. Wait for approval request
+        val approvals = withTimeout(5000) {
+            repository.getActiveApprovals(session.id).first { it.isNotEmpty() }
         }
-        assertEquals(1, repository.activeApprovals.value.size)
-        val approval = repository.activeApprovals.value[0]
-        assertEquals("app_req_1", approval.requestId)
-        assertEquals("git status", approval.command)
+        assertEquals(1, approvals.size)
+        val approval = approvals[0]
+        assertEquals("app_req_1", approval.approval.requestId)
+        assertEquals("git status", approval.approval.command)
 
-        // 10. Respond to approval
-        val approvalRes = repository.respondApproval("app_req_1", "once", false)
+        // 8. Respond to approval
+        val approvalRes = repository.respondApproval(
+            hostId = approval.hostId,
+            runtimeSessionId = approval.runtimeSessionId,
+            requestId = approval.approval.requestId,
+            choice = "once",
+            all = false
+        )
         assertTrue(approvalRes)
-        assertTrue(repository.activeApprovals.value.isEmpty())
-
-        // 11. Wait for completion
         withTimeout(5000) {
-            while (repository.isExecuting.value) {
-                kotlinx.coroutines.delay(50)
-            }
+            repository.getActiveApprovals(session.id).first { it.isEmpty() }
         }
-        assertFalse(repository.isExecuting.value)
-        val completedMsg = repository.messages.value.find { it.role == MessageRole.ASSISTANT }
+        assertEquals(0, repository.getActiveApprovals(session.id).value.size)
+
+        // 9. Wait for completion
+        withTimeout(5000) {
+            repository.getSessionExecuting(session.id).first { !it }
+        }
+        assertFalse(repository.getSessionExecuting(session.id).value)
+
+        val completedMsg = withTimeout(5000) {
+            repository.getSessionMessages(session.id).first { msgs ->
+                msgs.any { it.role == MessageRole.ASSISTANT && !it.isStreaming }
+            }.find { it.role == MessageRole.ASSISTANT }
+        }
         assertNotNull(completedMsg)
         assertEquals("Sure, I can run that tool. Done!", completedMsg!!.content)
         assertFalse(completedMsg.isStreaming)
@@ -248,28 +285,37 @@ class EndToEndContractScenarioTest {
             }
         }
 
-        val conn = HermesConnection(
-            id = "refresh_conn_1",
-            name = "Refresh Server",
+        val hostId = HermesHostId("refresh_host_1")
+        val host = HermesHost(
+            id = hostId,
+            displayName = "Refresh Server",
             baseUrl = serverUrl,
             allowCleartext = true
         )
 
         // Expired token (expiresAt = 1000, current time is > 1000)
         tokenVault.saveTokens(
-            conn.id,
-            app.hermes.mobile.core.model.NativeAuthTokens(
+            host.id.value,
+            NativeAuthTokens(
                 accessToken = "expired_token",
                 refreshToken = "rt_initial",
                 expiresAt = 1000L
             )
         )
 
-        val connectRes = repository.connect(conn)
+        connectionManager.addHost(host)
+        val connectRes = connectionManager.connectHost(host.id)
         assertTrue(connectRes.isSuccess)
+
+        val onlineHost = withTimeout(5000) {
+            hostDao.getHostsFlow().first { hosts ->
+                hosts.any { it.id == host.id.value && it.lastKnownStatus == HostStatus.ONLINE.name }
+            }
+        }
+        assertNotNull(onlineHost)
         assertTrue(refreshed)
 
-        val newTokens = tokenVault.getTokens(conn.id)
+        val newTokens = tokenVault.getTokens(host.id.value)
         assertNotNull(newTokens)
         assertEquals("refreshed_access_token", newTokens?.accessToken)
     }
