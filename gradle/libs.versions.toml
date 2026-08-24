@@ -26,6 +26,7 @@ okhttp = "4.12.0"
 # ML Kit & Google libraries
 mlkitBarcode = "17.3.0"
 guava = "33.4.0-android"
+material = "1.12.0"
 
 # Testing
 junit = "4.13.2"
@@ -82,6 +83,7 @@ androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycl
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
 mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcode" }
 guava = { group = "com.google.guava", name = "guava", version.ref = "guava" }
+material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }

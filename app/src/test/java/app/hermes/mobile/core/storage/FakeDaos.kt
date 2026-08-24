@@ -312,4 +312,34 @@ class FakeUnifiedSessionDao : UnifiedSessionDao {
             }
         }
     }
+
+    override suspend fun deleteAllMessages() {
+        synchronized(lock) {
+            messages.clear()
+            updateFlow()
+        }
+    }
+
+    override suspend fun deleteAllBindings() {
+        synchronized(lock) {
+            bindings.clear()
+            updateFlow()
+        }
+    }
+
+    override suspend fun deleteAllSessions() {
+        synchronized(lock) {
+            sessions.clear()
+            updateFlow()
+        }
+    }
+
+    override suspend fun clearAllLocalCache() {
+        synchronized(lock) {
+            messages.clear()
+            bindings.clear()
+            sessions.clear()
+            updateFlow()
+        }
+    }
 }

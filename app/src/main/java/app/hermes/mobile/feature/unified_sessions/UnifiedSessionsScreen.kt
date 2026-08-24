@@ -64,6 +64,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.ui.res.stringResource
+import app.hermes.mobile.R
+
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -73,7 +77,8 @@ import androidx.compose.material3.SnackbarHostState
 fun UnifiedSessionsScreen(
     viewModel: UnifiedSessionsViewModel,
     onNavigateToChat: (UnifiedSessionId) -> Unit,
-    onNavigateToHosts: () -> Unit
+    onNavigateToHosts: () -> Unit,
+    onNavigateToSettings: () -> Unit = {}
 ) {
     val sessions by viewModel.sessions.collectAsState()
     val hosts by viewModel.hosts.collectAsState()
@@ -82,6 +87,7 @@ fun UnifiedSessionsScreen(
 
     var showCreateDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val dismissLabel = stringResource(R.string.dismiss)
 
     val errorMessage = uiState.error
     LaunchedEffect(errorMessage) {
@@ -89,7 +95,7 @@ fun UnifiedSessionsScreen(
             val sanitized = sanitizeErrorMessage(errorMessage)
             snackbarHostState.showSnackbar(
                 message = sanitized,
-                actionLabel = "Dismiss",
+                actionLabel = dismissLabel,
                 duration = SnackbarDuration.Short
             )
             viewModel.clearError()
@@ -102,11 +108,11 @@ fun UnifiedSessionsScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("Unified Sessions", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.unified_sessions_title), fontWeight = FontWeight.Bold)
                         val hostsCount = hosts.size
                         val onlineCount = hosts.count { it.lastKnownStatus == HostStatus.ONLINE }
                         Text(
-                            text = "$onlineCount/$hostsCount hosts online",
+                            text = stringResource(R.string.hosts_online_format, onlineCount, hostsCount),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -114,7 +120,10 @@ fun UnifiedSessionsScreen(
                 },
                 actions = {
                     IconButton(onClick = onNavigateToHosts) {
-                        Icon(Icons.Default.Dns, contentDescription = "Manage Hosts")
+                        Icon(Icons.Default.Dns, contentDescription = stringResource(R.string.manage_hosts))
+                    }
+                    IconButton(onClick = onNavigateToSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.settings))
                     }
                 }
             )
@@ -128,9 +137,9 @@ fun UnifiedSessionsScreen(
                     modifier = Modifier.padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
+                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.new_session))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("New Session", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.new_session), fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -152,13 +161,13 @@ fun UnifiedSessionsScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            "No unified sessions yet",
+                            stringResource(R.string.no_unified_sessions),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Start a session that can roam seamlessly across all your Hermes hosts.",
+                            stringResource(R.string.no_unified_sessions_hint),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -230,7 +239,7 @@ fun UnifiedSessionCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = session.title.ifEmpty { "Unified Session" },
+                        text = session.title.ifEmpty { stringResource(R.string.unified_session_default_title) },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -244,7 +253,7 @@ fun UnifiedSessionCard(
                 ) {
                     Icon(
                         Icons.Default.Delete,
-                        contentDescription = "Delete",
+                        contentDescription = stringResource(R.string.delete),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                         modifier = Modifier.size(18.dp)
                     )
@@ -287,7 +296,7 @@ fun UnifiedSessionCard(
                 val attachedCount = session.bindings.size.coerceAtLeast(1)
                 val msgCount = if (session.messageCount > 0) session.messageCount else session.timeline.size
                 Text(
-                    text = "$attachedCount attached • $msgCount msgs",
+                    text = stringResource(R.string.attached_hosts_and_msgs_format, attachedCount, msgCount),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -301,7 +310,7 @@ fun UnifiedSessionCard(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "ID: ${session.id.value.take(8)}",
+                    text = stringResource(R.string.session_id_format, session.id.value.take(8)),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                 )
@@ -329,28 +338,28 @@ fun CreateSessionDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Start Unified Session", fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.start_unified_session), fontWeight = FontWeight.Bold) },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Session Title") },
-                    placeholder = { Text("e.g. Android Development, Data Analysis") },
+                    label = { Text(stringResource(R.string.session_title)) },
+                    placeholder = { Text(stringResource(R.string.session_title_placeholder)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(14.dp))
 
                 if (hosts.isNotEmpty()) {
-                    Text("Initial Active Host:", style = MaterialTheme.typography.labelMedium)
+                    Text(stringResource(R.string.initial_active_host), style = MaterialTheme.typography.labelMedium)
                     Spacer(modifier = Modifier.height(6.dp))
 
                     ExposedDropdownMenuBox(
                         expanded = expandedDropdown,
                         onExpandedChange = { expandedDropdown = !expandedDropdown }
                     ) {
-                        val currentHostName = hosts.find { it.id == selectedHostId }?.displayName ?: "Select host"
+                        val currentHostName = hosts.find { it.id == selectedHostId }?.displayName ?: stringResource(R.string.select_host)
                         OutlinedTextField(
                             value = currentHostName,
                             onValueChange = {},
@@ -396,12 +405,12 @@ fun CreateSessionDialog(
                     onConfirm(title.ifBlank { "Session" }, selectedHostId)
                 }
             ) {
-                Text("Create")
+                Text(stringResource(R.string.create))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.cancel))
             }
         }
     )

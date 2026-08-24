@@ -3,10 +3,12 @@ package app.hermes.mobile.core.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class DurableSessionId(val value: String)
+@JvmInline
+value class DurableSessionId(val value: String)
 
 @Serializable
-data class RuntimeSessionId(val value: String)
+@JvmInline
+value class RuntimeSessionId(val value: String)
 
 @Serializable
 data class SessionSummary(
@@ -41,17 +43,6 @@ data class ToolActivity(
     val progress: String? = null,
     val result: String? = null,
     val isError: Boolean = false
-)
-
-@Serializable
-data class HermesMessage(
-    val id: String,
-    val role: MessageRole,
-    val content: String,
-    val thinking: String? = null,
-    val tools: List<ToolActivity> = emptyList(),
-    val isStreaming: Boolean = false,
-    val timestamp: Long = System.currentTimeMillis()
 )
 
 @Serializable

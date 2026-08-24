@@ -74,6 +74,9 @@ import app.hermes.mobile.core.model.ToolActivity
 import app.hermes.mobile.core.model.UnifiedMessage
 import app.hermes.mobile.core.model.UnifiedMessageSource
 
+import androidx.compose.ui.res.stringResource
+import app.hermes.mobile.R
+
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -96,6 +99,7 @@ fun ChatScreen(
     val activeHost = hosts.find { it.id == currentSession?.activeHostId }
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val retryLabel = stringResource(R.string.retry)
 
     val errorMessage = uiState.error
     LaunchedEffect(errorMessage) {
@@ -103,7 +107,7 @@ fun ChatScreen(
             val sanitized = sanitizeErrorMessage(errorMessage)
             val result = snackbarHostState.showSnackbar(
                 message = sanitized,
-                actionLabel = "Retry",
+                actionLabel = retryLabel,
                 duration = SnackbarDuration.Short
             )
             if (result == SnackbarResult.ActionPerformed) {
@@ -146,7 +150,7 @@ fun ChatScreen(
                     title = {
                         Column {
                             Text(
-                                text = currentSession?.title?.ifEmpty { "Unified Chat" } ?: "Unified Chat",
+                                text = currentSession?.title?.ifEmpty { stringResource(R.string.unified_chat) } ?: stringResource(R.string.unified_chat),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
@@ -171,7 +175,7 @@ fun ChatScreen(
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = activeHost?.displayName ?: "Select Host",
+                                        text = activeHost?.displayName ?: stringResource(R.string.select_host),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontWeight = FontWeight.SemiBold
@@ -179,7 +183,7 @@ fun ChatScreen(
                                     Spacer(modifier = Modifier.width(2.dp))
                                     Icon(
                                         Icons.Default.ExpandMore,
-                                        contentDescription = "Switch Host",
+                                        contentDescription = stringResource(R.string.switch_host),
                                         modifier = Modifier.size(14.dp),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -216,7 +220,7 @@ fun ChatScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                         }
                     },
                     actions = {
@@ -228,9 +232,9 @@ fun ChatScreen(
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                 modifier = Modifier.padding(end = 8.dp)
                             ) {
-                                Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Stop, contentDescription = stringResource(R.string.stop), modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Stop", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.stop), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -311,7 +315,7 @@ fun ChatScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         val hostLabel = activeHost?.displayName ?: "Hermes"
                         Text(
-                            "$hostLabel is thinking…",
+                            text = stringResource(R.string.host_thinking_format, hostLabel),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -344,24 +348,18 @@ fun HostStatusChip(
     onStop: () -> Unit
 ) {
     val statusText = when {
-        isRunning -> "Running"
-        isActive -> "Active"
-        host.lastKnownStatus == HostStatus.ONLINE -> "Online"
-        host.lastKnownStatus == HostStatus.CONNECTING -> "Connecting"
-        host.lastKnownStatus == HostStatus.AUTH_EXPIRED -> "Auth Expired"
-        else -> "Offline"
+        isRunning -> stringResource(R.string.status_running)
+        isActive -> stringResource(R.string.status_active)
+        host.lastKnownStatus == HostStatus.ONLINE -> stringResource(R.string.status_online)
+        host.lastKnownStatus == HostStatus.CONNECTING -> stringResource(R.string.status_connecting)
+        host.lastKnownStatus == HostStatus.AUTH_EXPIRED -> stringResource(R.string.status_auth_expired)
+        else -> stringResource(R.string.status_offline)
     }
 
     val chipBg = when {
         isRunning -> Color(0xFFF59E0B).copy(alpha = 0.15f)
         isActive -> Color(0xFF38BDF8).copy(alpha = 0.15f)
         else -> MaterialTheme.colorScheme.surface
-    }
-
-    val chipBorder = when {
-        isRunning -> Color(0xFFF59E0B)
-        isActive -> Color(0xFF38BDF8)
-        else -> Color(0xFF475569)
     }
 
     Row(
@@ -412,7 +410,7 @@ fun HostStatusChip(
             ) {
                 Icon(
                     Icons.Default.Stop,
-                    contentDescription = "Stop Host",
+                    contentDescription = stringResource(R.string.stop_host),
                     tint = Color.White,
                     modifier = Modifier.size(10.dp)
                 )
@@ -565,7 +563,7 @@ fun ThinkingSection(thinking: String) {
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        "Reasoning & Thoughts",
+                        stringResource(R.string.reasoning_and_thoughts),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFFF59E0B)
@@ -635,7 +633,7 @@ fun ToolActivityCard(tool: ToolActivity) {
                             color = Color(0xFF38BDF8)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Running", fontSize = 10.sp, color = Color(0xFF38BDF8))
+                        Text(stringResource(R.string.status_running), fontSize = 10.sp, color = Color(0xFF38BDF8))
                     } else if (isCompleted) {
                         Icon(
                             Icons.Default.CheckCircle,
@@ -644,7 +642,7 @@ fun ToolActivityCard(tool: ToolActivity) {
                             modifier = Modifier.size(12.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Done", fontSize = 10.sp, color = Color(0xFF10B981))
+                        Text(stringResource(R.string.status_done), fontSize = 10.sp, color = Color(0xFF10B981))
                     }
                 }
             }
@@ -698,7 +696,7 @@ fun ChatInputBar(
             OutlinedTextField(
                 value = text,
                 onValueChange = onTextChange,
-                placeholder = { Text("Message Hermes…") },
+                placeholder = { Text(stringResource(R.string.message_hermes_placeholder)) },
                 maxLines = 5,
                 shape = RoundedCornerShape(24.dp),
                 modifier = Modifier
@@ -716,7 +714,7 @@ fun ChatInputBar(
                 ) {
                     Icon(
                         Icons.Default.Stop,
-                        contentDescription = "Stop",
+                        contentDescription = stringResource(R.string.stop),
                         tint = Color.White
                     )
                 }
@@ -734,7 +732,7 @@ fun ChatInputBar(
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send",
+                        contentDescription = stringResource(R.string.send),
                         tint = if (text.isNotBlank()) MaterialTheme.colorScheme.onPrimary
                         else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                     )

@@ -45,6 +45,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import androidx.compose.ui.res.stringResource
+import app.hermes.mobile.R
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NativeSessionsScreen(
@@ -60,7 +63,7 @@ fun NativeSessionsScreen(
                 title = {
                     Column {
                         Text(
-                            text = host?.displayName ?: "Native Host Sessions",
+                            text = host?.displayName ?: stringResource(R.string.native_host_sessions),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -73,12 +76,12 @@ fun NativeSessionsScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { viewModel.loadSessions() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh))
                     }
                 }
             )
@@ -105,7 +108,7 @@ fun NativeSessionsScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            "No native sessions found",
+                            stringResource(R.string.no_native_sessions),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -150,7 +153,7 @@ fun NativeSessionCard(session: SessionSummary) {
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = session.title.ifEmpty { "Session ${session.id.value.take(8)}" },
+                        text = session.title.ifEmpty { stringResource(R.string.native_session_default_title, session.id.value.take(8)) },
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -192,7 +195,7 @@ fun NativeSessionCard(session: SessionSummary) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "${session.messageCount} msgs • ${session.id.value.take(8)}",
+                    text = stringResource(R.string.native_session_stats_format, session.messageCount, session.id.value.take(8)),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )

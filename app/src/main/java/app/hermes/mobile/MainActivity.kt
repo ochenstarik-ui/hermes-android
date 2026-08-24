@@ -35,6 +35,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 
+import app.hermes.mobile.feature.settings.SettingsViewModel
+
 class AppViewModelFactory(
     private val container: AppContainer,
     private val extraArg: Any? = null
@@ -72,6 +74,13 @@ class AppViewModelFactory(
                 NativeSessionsViewModel(
                     connectionManager = container.connectionManager,
                     hostId = hostId
+                ) as T
+            }
+            modelClass.isAssignableFrom(SettingsViewModel::class.java) -> {
+                SettingsViewModel(
+                    connectionManager = container.connectionManager,
+                    tokenVault = container.tokenVault,
+                    sessionDao = container.db.unifiedSessionDao()
                 ) as T
             }
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
@@ -143,6 +152,9 @@ fun HermesUnifiedAppNavigation(container: AppContainer) {
                 },
                 onNavigateToHosts = {
                     navController.navigate("hosts")
+                },
+                onNavigateToSettings = {
+                    navController.navigate("settings")
                 }
             )
         }
@@ -197,7 +209,11 @@ fun HermesUnifiedAppNavigation(container: AppContainer) {
         }
 
         composable("settings") {
+            val settingsViewModel: SettingsViewModel = viewModel(
+                factory = AppViewModelFactory(container)
+            )
             SettingsScreen(
+                viewModel = settingsViewModel,
                 onNavigateBack = {
                     navController.popBackStack()
                 }

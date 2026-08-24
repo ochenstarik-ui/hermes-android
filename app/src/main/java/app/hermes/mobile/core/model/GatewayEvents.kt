@@ -1,6 +1,5 @@
 package app.hermes.mobile.core.model
 
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -175,8 +174,6 @@ sealed class GatewayEvent {
     ) : GatewayEvent()
 
     companion object {
-        private val json = Json { ignoreUnknownKeys = true; isLenient = true }
-
         fun parse(root: JsonObject): GatewayEvent? {
             val params = (root["params"] as? JsonObject) ?: root
 

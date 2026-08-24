@@ -29,6 +29,8 @@ import java.util.concurrent.Executors
 import android.content.pm.PackageManager
 
 import android.content.Context
+import androidx.compose.ui.res.stringResource
+import app.hermes.mobile.R
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
@@ -66,7 +68,7 @@ fun QrScannerSheet(
             modifier = Modifier.fillMaxSize().padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Scan QR Code", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.scan_qr_code), style = MaterialTheme.typography.titleLarge)
             Spacer(modifier = Modifier.height(16.dp))
 
             if (hasCameraPermission) {
@@ -75,13 +77,13 @@ fun QrScannerSheet(
                 }
             } else {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text("Camera permission denied.")
+                    Text(stringResource(R.string.camera_permission_denied))
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
             Button(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.cancel))
             }
         }
     }

@@ -6,11 +6,13 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
 import app.hermes.mobile.core.model.HermesConnection
 import app.hermes.mobile.core.model.HostStatus
-import app.hermes.mobile.core.repository.dataStore
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.serialization.json.Json
+
+val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "hermes_connections")
 
 object MigrationHelper {
     private val json = Json { ignoreUnknownKeys = true }

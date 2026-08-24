@@ -36,6 +36,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.hermes.mobile.core.model.HostAttributedApproval
 
+import androidx.compose.ui.res.stringResource
+import app.hermes.mobile.R
+
 @Composable
 fun ApprovalCard(
     attributedApproval: HostAttributedApproval,
@@ -68,7 +71,7 @@ fun ApprovalCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Authorization Required",
+                        text = stringResource(R.string.authorization_required),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFFF59E0B)
@@ -148,7 +151,7 @@ fun ApprovalCard(
                     ),
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text("Deny", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.deny), fontWeight = FontWeight.Bold)
                 }
 
                 Spacer(modifier = Modifier.width(8.dp))
@@ -157,7 +160,7 @@ fun ApprovalCard(
                     onClick = { onRespond("once", false) },
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text("Allow Once")
+                    Text(stringResource(R.string.allow_once))
                 }
 
                 Spacer(modifier = Modifier.width(8.dp))
@@ -169,7 +172,7 @@ fun ApprovalCard(
                     ),
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text("Allow Always", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.allow_always), fontWeight = FontWeight.Bold)
                 }
             }
         }

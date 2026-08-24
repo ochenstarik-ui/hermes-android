@@ -1,19 +1,119 @@
 <resources>
     <string name="app_name">Hermes</string>
-    <string name="connections">Connections</string>
-    <string name="sessions">Sessions</string>
-    <string name="chat">Chat</string>
+    <string name="back">Back</string>
+    <string name="cancel">Cancel</string>
+    <string name="ok">OK</string>
+    <string name="delete">Delete</string>
+    <string name="dismiss">Dismiss</string>
+    <string name="retry">Retry</string>
+    <string name="submit">Submit</string>
+    <string name="create">Create</string>
+    <string name="refresh">Refresh</string>
     <string name="settings">Settings</string>
-    <string name="new_chat">New Chat</string>
-    <string name="add_connection">Add Connection</string>
-    <string name="test_connection">Test Connection</string>
-    <string name="sign_in">Sign In</string>
+    <string name="settings_and_security">Settings &amp; Security</string>
+
+    <!-- Sessions -->
+    <string name="unified_sessions_title">Unified Sessions</string>
+    <string name="hosts_online_format">%1$d/%2$d hosts online</string>
+    <string name="manage_hosts">Manage Hosts</string>
+    <string name="new_session">New Session</string>
+    <string name="no_unified_sessions">No unified sessions yet</string>
+    <string name="no_unified_sessions_hint">Start a session that can roam seamlessly across all your Hermes hosts.</string>
+    <string name="unified_session_default_title">Unified Session</string>
+    <string name="attached_hosts_and_msgs_format">%1$d attached • %2$d msgs</string>
+    <string name="session_id_format">ID: %1$s</string>
+    <string name="start_unified_session">Start Unified Session</string>
+    <string name="session_title">Session Title</string>
+    <string name="session_title_placeholder">e.g. Android Development, Data Analysis</string>
+    <string name="initial_active_host">Initial Active Host:</string>
+    <string name="select_host">Select host</string>
+
+    <!-- Chat -->
+    <string name="unified_chat">Unified Chat</string>
+    <string name="switch_host">Switch Host</string>
+    <string name="stop">Stop</string>
+    <string name="stop_host">Stop Host</string>
+    <string name="reasoning_and_thoughts">Reasoning &amp; Thoughts</string>
+    <string name="message_hermes_placeholder">Message Hermes…</string>
+    <string name="send">Send</string>
+    <string name="host_thinking_format">%1$s is thinking…</string>
+    <string name="status_running">Running</string>
+    <string name="status_active">Active</string>
+    <string name="status_online">Online</string>
+    <string name="status_connecting">Connecting…</string>
+    <string name="status_auth_expired">Auth Expired</string>
+    <string name="status_offline">Offline</string>
+    <string name="status_done">Done</string>
+
+    <!-- Approvals & Clarifications -->
+    <string name="authorization_required">Authorization Required</string>
+    <string name="deny">Deny</string>
+    <string name="allow_once">Allow Once</string>
+    <string name="allow_always">Allow Always</string>
+    <string name="sudo_password_required">Sudo Password Required</string>
+    <string name="secret_key_required">Secret / API Key Required</string>
+    <string name="clarification_requested">Clarification Requested</string>
+    <string name="password_or_secret">Password / Secret</string>
+    <string name="your_answer">Your Answer</string>
+
+    <!-- Hosts -->
+    <string name="hermes_hosts">Hermes Hosts</string>
+    <string name="scan_qr">Scan QR</string>
+    <string name="add_host">Add Host</string>
+    <string name="no_hosts_registered">No Hermes hosts registered</string>
+    <string name="no_hosts_hint">Tap \'+\' to add a workstation, server, or cloud host.</string>
+    <string name="native_sessions">Native Sessions</string>
+    <string name="lan_http_badge">LAN / HTTP</string>
+    <string name="ready_auth_saved">Ready (Auth Saved)</string>
+    <string name="error">Error</string>
+    <string name="connect">Connect</string>
     <string name="disconnect">Disconnect</string>
-    <string name="connected">Connected</string>
-    <string name="connecting">Connecting…</string>
-    <string name="disconnected">Disconnected</string>
-    <string name="reconnecting">Reconnecting…</string>
-    <string name="failed">Failed</string>
-    <string name="authenticated">Authenticated</string>
-    <string name="auth_required">Auth Required</string>
+    <string name="sign_in">Sign In</string>
+    <string name="host_name_label">Host Name (e.g. Linux Server, Office PC)</string>
+    <string name="base_url_label">Base URL (http://... or https://...)</string>
+    <string name="allow_cleartext_http">Allow Cleartext HTTP (LAN)</string>
+    <string name="allow_cleartext_desc">Permits unencrypted local network traffic.</string>
+    <string name="cleartext_security_warning">⚠️ Security Notice: Plain HTTP is unencrypted. Use only on trusted private LANs.</string>
+    <string name="test_connection_btn">Test Connection (/api/status)</string>
+    <string name="testing">Testing…</string>
+    <string name="status_ok_format">Status OK (v%1$s, Auth: %2$s)</string>
+    <string name="save_host">Save Host</string>
+    <string name="qr_scan_error">QR Scan Error</string>
+    <string name="auth_required_label">Required</string>
+    <string name="auth_none_label">None</string>
+
+    <!-- Pairing & QR -->
+    <string name="pairing_preview">Pairing Preview</string>
+    <string name="host_format">Host: %1$s</string>
+    <string name="address_format">Address: %1$s</string>
+    <string name="probing_status">Probing status...</string>
+    <string name="probe_failed_format">Probe failed: %1$s</string>
+    <string name="update_host">Update Host</string>
+    <string name="endpoint_changed_warning">Endpoint for this host has changed from %1$s to %2$s. For security, saved login credentials will be cleared. Fresh login will be required.</string>
+    <string name="update_endpoint_notice">Will update endpoint for existing host \'%1$s\'</string>
+    <string name="allow_cleartext">Allow Cleartext</string>
+    <string name="http_insecure_warning">Security warning: HTTP is insecure</string>
+    <string name="scan_qr_code">Scan QR Code</string>
+    <string name="camera_permission_denied">Camera permission denied.</string>
+
+    <!-- Native Sessions -->
+    <string name="native_host_sessions">Native Host Sessions</string>
+    <string name="no_native_sessions">No native sessions found</string>
+    <string name="native_session_default_title">Session %1$s</string>
+    <string name="native_session_stats_format">%1$d msgs • %2$s</string>
+
+    <!-- Settings -->
+    <string name="security_and_auth">Security &amp; Authentication</string>
+    <string name="security_desc">• PKCE (RFC 7636 / RFC 8252) ephemeral loopback on 127.0.0.1.\n• TLS certificate pinning and fingerprint verification.\n• Encrypted credentials stored in Android Keystore / EncryptedSharedPreferences (AES-256-GCM / AES-256-SIV).\n• Cleartext HTTP strictly disabled by default unless explicitly enabled per connection for local LAN debugging.</string>
+    <string name="app_diagnostics">Diagnostics &amp; Status</string>
+    <string name="diagnostics_summary_format">Registered hosts: %1$d (%2$d online)\nStored host credentials: %3$d</string>
+    <string name="cache_management">Cache Management</string>
+    <string name="clear_cache_desc">Clear local session messages and cache from device storage.</string>
+    <string name="clear_cache_btn">Clear Local Cache</string>
+    <string name="clear_cache_dialog_title">Clear Cache?</string>
+    <string name="clear_cache_dialog_msg">This will remove locally stored sessions and messages from your device. Remote data on hosts will not be affected.</string>
+    <string name="clear">Clear</string>
+    <string name="cache_cleared_msg">Local cache cleared successfully</string>
+    <string name="hermes_client_info">Hermes Client Info</string>
+    <string name="client_info_content">App: Hermes Android Client\nVersion: 1.0.0 (Build 1)\nProtocol: Unified Multi-Host Contract v1</string>
 </resources>

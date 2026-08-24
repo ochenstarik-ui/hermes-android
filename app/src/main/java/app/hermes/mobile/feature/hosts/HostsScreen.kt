@@ -61,6 +61,9 @@ import app.hermes.mobile.core.model.HermesHost
 import app.hermes.mobile.core.model.HermesHostId
 import app.hermes.mobile.core.model.HostStatus
 
+import androidx.compose.ui.res.stringResource
+import app.hermes.mobile.R
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HostsScreen(
@@ -77,15 +80,15 @@ fun HostsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Hermes Hosts", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.hermes_hosts), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { viewModel.startQrScan() }) {
-                        Icon(Icons.Default.Add, contentDescription = "Scan QR")
+                        Icon(Icons.Default.Add, contentDescription = stringResource(R.string.scan_qr))
                     }
                 }
             )
@@ -95,7 +98,7 @@ fun HostsScreen(
                 onClick = { showAddDialog = true },
                 containerColor = MaterialTheme.colorScheme.primary
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Host")
+                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_host))
             }
         }
     ) { padding ->
@@ -141,13 +144,13 @@ fun HostsScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            "No Hermes hosts registered",
+                            stringResource(R.string.no_hosts_registered),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Tap '+' to add a workstation, server, or cloud host.",
+                            stringResource(R.string.no_hosts_hint),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -179,7 +182,7 @@ fun HostsScreen(
             }
         }
 
-                if (showAddDialog) {
+        if (showAddDialog) {
             AddHostDialog(
                 uiState = uiState,
                 onDismiss = { showAddDialog = false },
@@ -219,11 +222,11 @@ fun HostsScreen(
         if (uiState.qrScanError != null) {
             AlertDialog(
                 onDismissRequest = { viewModel.dismissQrScan() },
-                title = { Text("QR Scan Error") },
+                title = { Text(stringResource(R.string.qr_scan_error)) },
                 text = { Text(uiState.qrScanError ?: "") },
                 confirmButton = {
                     TextButton(onClick = { viewModel.dismissQrScan() }) {
-                        Text("OK")
+                        Text(stringResource(R.string.ok))
                     }
                 }
             )
@@ -280,15 +283,15 @@ fun HostCard(
                                 .background(Color(0xFFF59E0B).copy(alpha = 0.2f))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
-                            Text("LAN / HTTP", fontSize = 10.sp, color = Color(0xFFD97706), fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.lan_http_badge), fontSize = 10.sp, color = Color(0xFFD97706), fontWeight = FontWeight.Bold)
                         }
                         Spacer(modifier = Modifier.width(6.dp))
                     }
                     IconButton(onClick = onOpenNativeSessions) {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Native Sessions")
+                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = stringResource(R.string.native_sessions))
                     }
                     IconButton(onClick = onDelete) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.delete), tint = MaterialTheme.colorScheme.error)
                     }
                 }
             }
@@ -309,12 +312,12 @@ fun HostCard(
                         HostStatus.OFFLINE -> Color(0xFF94A3B8)
                     }
                     val badgeText = when (host.lastKnownStatus) {
-                        HostStatus.ONLINE -> "Online"
-                        HostStatus.CONNECTING -> "Connecting…"
-                        HostStatus.AUTH_REQUIRED -> "Auth Required"
-                        HostStatus.AUTH_EXPIRED -> "Auth Expired"
-                        HostStatus.ERROR -> "Error"
-                        HostStatus.OFFLINE -> if (isAuthenticated) "Ready (Auth Saved)" else "Offline"
+                        HostStatus.ONLINE -> stringResource(R.string.status_online)
+                        HostStatus.CONNECTING -> stringResource(R.string.status_connecting)
+                        HostStatus.AUTH_REQUIRED -> stringResource(R.string.auth_required_label)
+                        HostStatus.AUTH_EXPIRED -> stringResource(R.string.status_auth_expired)
+                        HostStatus.ERROR -> stringResource(R.string.error)
+                        HostStatus.OFFLINE -> if (isAuthenticated) stringResource(R.string.ready_auth_saved) else stringResource(R.string.status_offline)
                     }
 
                     Box(
@@ -341,7 +344,7 @@ fun HostCard(
                                 Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
                             }
-                            Text("Sign In", fontSize = 12.sp)
+                            Text(stringResource(R.string.sign_in), fontSize = 12.sp)
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                     }
@@ -351,7 +354,7 @@ fun HostCard(
                             onClick = onDisconnect,
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text("Disconnect", fontSize = 12.sp)
+                            Text(stringResource(R.string.disconnect), fontSize = 12.sp)
                         }
                     } else {
                         Button(
@@ -363,7 +366,7 @@ fun HostCard(
                                 CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color.White)
                                 Spacer(modifier = Modifier.width(4.dp))
                             }
-                            Text("Connect", fontSize = 12.sp)
+                            Text(stringResource(R.string.connect), fontSize = 12.sp)
                         }
                     }
                 }
@@ -385,13 +388,13 @@ fun AddHostDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add Hermes Host", fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.add_host), fontWeight = FontWeight.Bold) },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Host Name (e.g. Linux Server, Office PC)") },
+                    label = { Text(stringResource(R.string.host_name_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -399,7 +402,7 @@ fun AddHostDialog(
                 OutlinedTextField(
                     value = baseUrl,
                     onValueChange = { baseUrl = it },
-                    label = { Text("Base URL (http://... or https://...)") },
+                    label = { Text(stringResource(R.string.base_url_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -411,9 +414,9 @@ fun AddHostDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Allow Cleartext HTTP (LAN)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.allow_cleartext_http), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                         Text(
-                            "Permits unencrypted local network traffic.",
+                            stringResource(R.string.allow_cleartext_desc),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -427,7 +430,7 @@ fun AddHostDialog(
                 if (allowCleartext) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "⚠️ Security Notice: Plain HTTP is unencrypted. Use only on trusted private LANs.",
+                        stringResource(R.string.cleartext_security_warning),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFFD97706)
                     )
@@ -443,11 +446,11 @@ fun AddHostDialog(
                     if (uiState.isTesting) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Testing…")
+                        Text(stringResource(R.string.testing))
                     } else {
                         Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Test Connection (/api/status)")
+                        Text(stringResource(R.string.test_connection_btn))
                     }
                 }
 
@@ -456,8 +459,9 @@ fun AddHostDialog(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
+                        val authStr = if (uiState.testStatus.authRequired) stringResource(R.string.auth_required_label) else stringResource(R.string.auth_none_label)
                         Text(
-                            "Status OK (v${uiState.testStatus.version ?: "1.0"}, Auth: ${if (uiState.testStatus.authRequired) "Required" else "None"})",
+                            stringResource(R.string.status_ok_format, uiState.testStatus.version ?: "1.0", authStr),
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF10B981)
                         )
@@ -487,12 +491,12 @@ fun AddHostDialog(
                 },
                 enabled = baseUrl.isNotBlank()
             ) {
-                Text("Save Host")
+                Text(stringResource(R.string.save_host))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.cancel))
             }
         }
     )

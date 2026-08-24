@@ -17,6 +17,9 @@ captures/
 
 # Local configuration file (sdk path, secrets, etc.)
 local.properties
+keystore.properties
+*.jks
+*.keystore
 
 # Android Studio / IntelliJ IDEA files
 .idea/

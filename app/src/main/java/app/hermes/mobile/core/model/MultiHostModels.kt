@@ -3,10 +3,12 @@ package app.hermes.mobile.core.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class HermesHostId(val value: String)
+@JvmInline
+value class HermesHostId(val value: String)
 
 @Serializable
-data class UnifiedSessionId(val value: String)
+@JvmInline
+value class UnifiedSessionId(val value: String)
 
 enum class HostStatus {
     ONLINE,
@@ -64,8 +66,7 @@ enum class UnifiedMessageSource {
     USER,
     HERMES,
     SYSTEM,
-    TRANSFER,
-    A2A
+    TRANSFER
 }
 
 @Serializable
@@ -93,13 +94,6 @@ data class UnifiedSession(
     val timeline: List<UnifiedMessage> = emptyList(),
     val messageCount: Int = timeline.size,
     val lastMessagePreview: String? = null
-)
-
-@Serializable
-data class A2AContextBinding(
-    val sourceHostId: HermesHostId,
-    val targetHostId: HermesHostId,
-    val contextId: String
 )
 
 data class HostGatewayEvent(

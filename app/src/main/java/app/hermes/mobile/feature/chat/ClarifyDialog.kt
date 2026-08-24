@@ -48,6 +48,9 @@ import androidx.compose.ui.unit.sp
 import app.hermes.mobile.core.model.ClarifyType
 import app.hermes.mobile.core.model.HostAttributedClarify
 
+import androidx.compose.ui.res.stringResource
+import app.hermes.mobile.R
+
 @Composable
 fun ClarifyDialog(
     attributedClarify: HostAttributedClarify,
@@ -79,9 +82,9 @@ fun ClarifyDialog(
     }
 
     val title = when (request.promptType) {
-        ClarifyType.SUDO -> "Sudo Password Required"
-        ClarifyType.SECRET -> "Secret / API Key Required"
-        ClarifyType.CLARIFY -> "Clarification Requested"
+        ClarifyType.SUDO -> stringResource(R.string.sudo_password_required)
+        ClarifyType.SECRET -> stringResource(R.string.secret_key_required)
+        ClarifyType.CLARIFY -> stringResource(R.string.clarification_requested)
     }
 
     val icon = when (request.promptType) {
@@ -135,7 +138,7 @@ fun ClarifyDialog(
                     onValueChange = { input = it },
                     label = {
                         Text(
-                            if (isMasked) "Password / Secret" else "Your Answer"
+                            if (isMasked) stringResource(R.string.password_or_secret) else stringResource(R.string.your_answer)
                         )
                     },
                     visualTransformation = if (isMasked) PasswordVisualTransformation() else VisualTransformation.None,
@@ -160,7 +163,7 @@ fun ClarifyDialog(
                 },
                 enabled = input.isNotBlank()
             ) {
-                Text("Submit")
+                Text(stringResource(R.string.submit))
             }
         },
         dismissButton = {
@@ -170,7 +173,7 @@ fun ClarifyDialog(
                     onDismiss()
                 }
             ) {
-                Text("Cancel")
+                Text(stringResource(R.string.cancel))
             }
         }
     )

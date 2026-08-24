@@ -15,9 +15,6 @@ interface TokenVault {
     fun getTokens(hostId: String): NativeAuthTokens?
     fun clearTokens(hostId: String)
     fun getAllHostIds(): Set<String>
-
-    // Backwards-compatible aliases
-    fun getAllConnectionIds(): Set<String> = getAllHostIds()
 }
 
 class EncryptedTokenVault(private val context: Context) : TokenVault {

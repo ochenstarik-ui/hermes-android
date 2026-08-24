@@ -4,12 +4,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import app.hermes.mobile.core.pairing.HermesPairingPayload
-import app.hermes.mobile.core.network.HermesRestClient
+import app.hermes.mobile.R
 import app.hermes.mobile.core.model.HermesServerStatus
-import kotlinx.coroutines.launch
+import app.hermes.mobile.core.network.HermesRestClient
+import app.hermes.mobile.core.pairing.HermesPairingPayload
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URI
 
@@ -66,11 +68,11 @@ fun PairingPreviewDialog(
 
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text("Pairing Preview") },
+        title = { Text(stringResource(R.string.pairing_preview)) },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                Text("Host: ${payload.name}", style = MaterialTheme.typography.bodyLarge)
-                Text("Address: ${payload.scheme}://${payload.host}:${payload.port}", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.host_format, payload.name), style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.address_format, "${payload.scheme}://${payload.host}:${payload.port}"), style = MaterialTheme.typography.bodyMedium)
                 Spacer(modifier = Modifier.height(8.dp))
 
                 when (val state = probeState) {
@@ -78,24 +80,25 @@ fun PairingPreviewDialog(
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Probing status...", style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(R.string.probing_status), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     is PairingProbeState.Failed -> {
                         Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.small) {
                             Column(modifier = Modifier.padding(8.dp)) {
-                                Text("Probe failed: ${state.message}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                                Text(stringResource(R.string.probe_failed_format, state.message), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Button(onClick = { doProbe() }, modifier = Modifier.height(32.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
-                                    Text("Retry", style = MaterialTheme.typography.labelSmall)
+                                    Text(stringResource(R.string.retry), style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
                     }
                     is PairingProbeState.Success -> {
                         Surface(color = androidx.compose.ui.graphics.Color(0xFFD1FAE5), shape = MaterialTheme.shapes.small) {
+                            val authStr = if (state.status.authRequired) stringResource(R.string.auth_required_label) else stringResource(R.string.auth_none_label)
                             Text(
-                                "Hermes v${state.status.version} | Auth: ${if (state.status.authRequired) "Required" else "None"}",
+                                "Hermes v${state.status.version} | Auth: $authStr",
                                 modifier = Modifier.padding(8.dp),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = androidx.compose.ui.graphics.Color(0xFF065F46)
@@ -110,7 +113,7 @@ fun PairingPreviewDialog(
                     if (isEndpointChanged) {
                         Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.small) {
                             Text(
-                                "Endpoint for this host has changed from $oldEndpointUrl to ${payload.scheme}://${payload.host}:${payload.port}. For security, saved login credentials will be cleared. Fresh login will be required.",
+                                stringResource(R.string.endpoint_changed_warning, oldEndpointUrl ?: "", "${payload.scheme}://${payload.host}:${payload.port}"),
                                 modifier = Modifier.padding(8.dp),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onErrorContainer
@@ -119,7 +122,7 @@ fun PairingPreviewDialog(
                     } else {
                         Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
                             Text(
-                                "Will update endpoint for existing host '${existingHostName ?: payload.name}'",
+                                stringResource(R.string.update_endpoint_notice, existingHostName ?: payload.name),
                                 modifier = Modifier.padding(8.dp),
                                 style = MaterialTheme.typography.labelMedium
                             )
@@ -135,8 +138,8 @@ fun PairingPreviewDialog(
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Allow Cleartext", style = MaterialTheme.typography.bodyMedium)
-                            Text("Security warning: HTTP is insecure", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            Text(stringResource(R.string.allow_cleartext), style = MaterialTheme.typography.bodyMedium)
+                            Text(stringResource(R.string.http_insecure_warning), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         }
                         Switch(
                             checked = allowCleartext,
@@ -151,12 +154,12 @@ fun PairingPreviewDialog(
                 onClick = { onConfirm(allowCleartext) },
                 enabled = probeState is PairingProbeState.Success
             ) {
-                Text(if (isExistingHost) "Update Host" else "Add Host")
+                Text(if (isExistingHost) stringResource(R.string.update_host) else stringResource(R.string.add_host))
             }
         },
         dismissButton = {
             TextButton(onClick = onCancel) {
-                Text("Cancel")
+                Text(stringResource(R.string.cancel))
             }
         }
     )

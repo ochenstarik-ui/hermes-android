@@ -23,11 +23,5 @@ class HermesApplication : Application() {
             }
         }
     }
-
-    override fun onTerminate() {
-        super.onTerminate()
-        container.networkMonitor?.stop()
-        container.connectionManager.close()
-        container.applicationScope.cancel()
-    }
 }
+

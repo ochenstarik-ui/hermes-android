@@ -151,13 +151,8 @@ class CacheEvictionTest {
             // Unsubscribe
             job.cancel()
 
-            // Release session explicitly if method exists
-            try {
-                val releaseMethod = repository.javaClass.getMethod("releaseSession", UnifiedSessionId::class.java)
-                releaseMethod.invoke(repository, session.id)
-            } catch (_: NoSuchMethodException) {
-                // Base SHA does not have releaseSession
-            }
+            // Release session explicitly
+            repository.releaseSession(session.id)
         }
 
         delay(100)

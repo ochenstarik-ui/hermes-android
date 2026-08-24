@@ -67,15 +67,5 @@ abstract class HermesDatabase : RoomDatabase() {
                 instance
             }
         }
-
-        fun createInMemory(context: Context): HermesDatabase {
-            return Room.inMemoryDatabaseBuilder(
-                context.applicationContext,
-                HermesDatabase::class.java
-            )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
-                .allowMainThreadQueries()
-                .build()
-        }
     }
 }

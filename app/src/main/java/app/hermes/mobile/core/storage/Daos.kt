@@ -192,6 +192,22 @@ interface UnifiedSessionDao {
 
     @Query("UPDATE host_bindings SET state = :state WHERE sessionId = :sessionId AND hostId = :hostId")
     suspend fun updateBindingState(sessionId: String, hostId: String, state: String)
+
+    @Query("DELETE FROM unified_messages")
+    suspend fun deleteAllMessages()
+
+    @Query("DELETE FROM host_bindings")
+    suspend fun deleteAllBindings()
+
+    @Query("DELETE FROM unified_sessions")
+    suspend fun deleteAllSessions()
+
+    @Transaction
+    suspend fun clearAllLocalCache() {
+        deleteAllMessages()
+        deleteAllBindings()
+        deleteAllSessions()
+    }
 }
 
 @Dao
