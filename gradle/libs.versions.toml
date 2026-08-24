@@ -18,7 +18,7 @@ camerax = "1.4.1"
 
 # KotlinX
 coroutines = "1.10.1"
-serialization = "1.8.0"
+serialization = "1.11.0"
 
 # Network
 okhttp = "4.12.0"
