@@ -13,7 +13,7 @@ import androidx.room.RoomDatabase
         UnifiedMessageEntity::class
     ],
     version = 1,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class HermesDatabase : RoomDatabase() {
     abstract fun hostDao(): HostDao
@@ -30,7 +30,6 @@ abstract class HermesDatabase : RoomDatabase() {
                     HermesDatabase::class.java,
                     "hermes_unified.db"
                 )
-                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance

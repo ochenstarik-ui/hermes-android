@@ -78,15 +78,7 @@ data class UnifiedMessageEntity(
 )
 
 data class UnifiedSessionWithDetails(
-    @Embedded val session: UnifiedSessionEntity,
-    @Relation(
-        parentColumn = "id",
-        entityColumn = "sessionId"
-    )
-    val bindings: List<HostBindingEntity>,
-    @Relation(
-        parentColumn = "id",
-        entityColumn = "sessionId"
-    )
-    val messages: List<UnifiedMessageEntity>
+    val session: UnifiedSessionEntity,
+    val bindings: List<HostBindingEntity> = emptyList(),
+    val messages: List<UnifiedMessageEntity> = emptyList()
 )

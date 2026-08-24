@@ -92,6 +92,7 @@ dependencies {
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
+    androidTestImplementation("androidx.room:room-testing:$roomVersion")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
@@ -121,3 +122,8 @@ dependencies {
     testImplementation("app.cash.turbine:turbine:1.2.0")
     testImplementation("org.json:json:20240303")
 }
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
