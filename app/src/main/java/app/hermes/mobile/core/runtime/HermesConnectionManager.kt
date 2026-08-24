@@ -26,13 +26,14 @@ class HermesConnectionManager(
     val tokenVault: TokenVault,
     val restClient: HermesRestClient = HermesRestClient(),
     val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-    val runtimeFactory: (HermesHost) -> HermesHostRuntime = { host ->
+    val runtimeFactory: (CoroutineScope, HermesHost) -> HermesHostRuntime = { parentScope, host ->
+        val childScope = CoroutineScope(SupervisorJob(parentScope.coroutineContext[kotlinx.coroutines.Job]) + Dispatchers.Default)
         HermesHostRuntime(
             initialHost = host,
             restClient = restClient,
-            gatewayClient = JsonRpcGatewayClient(scope = scope),
+            gatewayClient = JsonRpcGatewayClient(scope = childScope),
             tokenVault = tokenVault,
-            scope = scope
+            scope = childScope
         )
     }
 ) {
@@ -44,7 +45,7 @@ class HermesConnectionManager(
     private val _activeHostId = MutableStateFlow<HermesHostId?>(null)
     val activeHostId: StateFlow<HermesHostId?> = _activeHostId.asStateFlow()
 
-    private val _allEvents = MutableSharedFlow<HostGatewayEvent>(replay = 1, extraBufferCapacity = 128)
+    private val _allEvents = MutableSharedFlow<HostGatewayEvent>(extraBufferCapacity = 128)
     val allEvents: SharedFlow<HostGatewayEvent> = _allEvents.asSharedFlow()
 
     init {
@@ -89,7 +90,7 @@ class HermesConnectionManager(
 
     fun getOrCreateRuntime(host: HermesHost): HermesHostRuntime {
         return runtimes.computeIfAbsent(host.id) {
-            val rt = runtimeFactory(host)
+            val rt = runtimeFactory(scope, host)
             // Forward events
             scope.launch {
                 rt.events.collect { event ->

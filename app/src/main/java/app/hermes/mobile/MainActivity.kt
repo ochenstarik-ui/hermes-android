@@ -43,28 +43,19 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val db = HermesDatabase.getInstance(applicationContext)
+        val container = (applicationContext as HermesApplication).container
+        
+        val db = container.db
         val hostDao = db.hostDao()
-        val sessionDao = db.unifiedSessionDao()
-        val tokenVault = EncryptedTokenVault(applicationContext)
-        val restClient = HermesRestClient()
-        val pkceAuthManager = PkceLoopbackAuthManager(restClient, tokenVault)
-
+        
         // Migrate legacy connections from DataStore if present
         lifecycleScope.launch {
             MigrationHelper.migrateLegacyConnections(applicationContext, hostDao)
         }
-
-        val connectionManager = HermesConnectionManager(
-            hostDao = hostDao,
-            tokenVault = tokenVault,
-            restClient = restClient
-        )
-
-        val unifiedSessionRepo = UnifiedSessionRepository(
-            connectionManager = connectionManager,
-            sessionDao = sessionDao
-        )
+        val tokenVault = container.tokenVault
+        val pkceAuthManager = container.pkceAuthManager
+        val connectionManager = container.connectionManager
+        val unifiedSessionRepo = container.unifiedSessionRepo
 
         setContent {
             HermesAndroidTheme {

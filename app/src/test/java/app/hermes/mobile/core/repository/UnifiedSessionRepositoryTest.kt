@@ -5,6 +5,7 @@ import app.hermes.mobile.core.network.ConnectionState
 import app.hermes.mobile.core.network.HermesRestClient
 import app.hermes.mobile.core.network.JsonRpcGatewayClient
 import app.hermes.mobile.core.runtime.HermesConnectionManager
+import app.hermes.mobile.core.runtime.HermesHostRuntime
 import app.hermes.mobile.core.security.InMemoryTokenVault
 import app.hermes.mobile.core.storage.FakeHostDao
 import app.hermes.mobile.core.storage.FakeUnifiedSessionDao
@@ -49,7 +50,17 @@ class UnifiedSessionRepositoryTest {
         connectionManager = HermesConnectionManager(
             hostDao = hostDao,
             tokenVault = tokenVault,
-            scope = CoroutineScope(testDispatcher)
+            scope = CoroutineScope(testDispatcher),
+            runtimeFactory = { parentScope, host ->
+                val childScope = CoroutineScope(kotlinx.coroutines.SupervisorJob(parentScope.coroutineContext[kotlinx.coroutines.Job]) + testDispatcher)
+                app.hermes.mobile.core.runtime.HermesHostRuntime(
+                    initialHost = host,
+                    restClient = app.hermes.mobile.core.network.HermesRestClient(),
+                    gatewayClient = app.hermes.mobile.core.network.JsonRpcGatewayClient(scope = childScope),
+                    tokenVault = tokenVault,
+                    scope = childScope
+                )
+            }
         )
 
         repository = UnifiedSessionRepository(

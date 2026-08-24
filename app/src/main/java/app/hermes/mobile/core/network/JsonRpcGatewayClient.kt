@@ -77,7 +77,7 @@ class JsonRpcGatewayClient(
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    private val _events = MutableSharedFlow<GatewayEvent>(replay = 1, extraBufferCapacity = 64)
+    private val _events = MutableSharedFlow<GatewayEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<GatewayEvent> = _events.asSharedFlow()
 
     private fun nextId(): String = "a${reqCounter.incrementAndGet()}"

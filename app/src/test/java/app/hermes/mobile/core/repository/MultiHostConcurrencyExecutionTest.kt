@@ -3,6 +3,7 @@ package app.hermes.mobile.core.repository
 import app.hermes.mobile.core.model.*
 import app.hermes.mobile.core.network.ConnectionState
 import app.hermes.mobile.core.network.JsonRpcGatewayClient
+import app.hermes.mobile.core.network.HermesRestClient
 import app.hermes.mobile.core.runtime.HermesConnectionManager
 import app.hermes.mobile.core.runtime.HermesHostRuntime
 import app.hermes.mobile.core.security.InMemoryTokenVault
@@ -53,7 +54,17 @@ class MultiHostConcurrencyExecutionTest {
         connectionManager = HermesConnectionManager(
             hostDao = hostDao,
             tokenVault = tokenVault,
-            scope = CoroutineScope(testDispatcher)
+            scope = CoroutineScope(testDispatcher),
+            runtimeFactory = { parentScope, host ->
+                val childScope = CoroutineScope(kotlinx.coroutines.SupervisorJob(parentScope.coroutineContext[kotlinx.coroutines.Job]) + testDispatcher)
+                app.hermes.mobile.core.runtime.HermesHostRuntime(
+                    initialHost = host,
+                    restClient = app.hermes.mobile.core.network.HermesRestClient(),
+                    gatewayClient = app.hermes.mobile.core.network.JsonRpcGatewayClient(scope = childScope),
+                    tokenVault = tokenVault,
+                    scope = childScope
+                )
+            }
         )
 
         sessionRepo = UnifiedSessionRepository(
@@ -664,8 +675,10 @@ class MultiHostConcurrencyExecutionTest {
             scope = CoroutineScope(Dispatchers.Default)
         )
 
-        val session = testRepo.createUnifiedSession(title = "Reconnect Test", initialHostId = host1Id)
-        val runtime = testConnectionManager.getRuntime(host1Id)!!
+        val host1 = HermesHost(id = HermesHostId("host-windows"), displayName = "Server", baseUrl = wsUrl, allowCleartext = true, lastKnownStatus = HostStatus.ONLINE)
+        testConnectionManager.addHost(host1)
+        val session = testRepo.createUnifiedSession(title = "Reconnect Test", initialHostId = HermesHostId("host-windows"))
+        val runtime = testConnectionManager.getRuntime(HermesHostId("host-windows"))!!
 
         // Initial connect
         runtime.connect()

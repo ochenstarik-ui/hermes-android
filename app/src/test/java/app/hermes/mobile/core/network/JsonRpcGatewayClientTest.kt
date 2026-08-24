@@ -6,6 +6,9 @@ import app.hermes.mobile.core.model.RuntimeSessionId
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -123,12 +126,18 @@ class JsonRpcGatewayClientTest {
         )
 
         val wsUrl = "ws://${server.hostName}:${server.port}/api/ws"
+        
+        // Start subscription BEFORE connecting, so we don't miss the event
+        val eventDeferred = async(start = CoroutineStart.UNDISPATCHED) {
+            withTimeout(5000) {
+                client.events.first { it is GatewayEvent.MessageDeltaEvent }
+            }
+        }
+        
         client.connect(wsUrl, allowCleartext = true)
         client.awaitGatewayReady(5000)
 
-        val event = withTimeout(5000) {
-            client.events.first { it is GatewayEvent.MessageDeltaEvent }
-        }
+        val event = eventDeferred.await()
 
         assertTrue(event is GatewayEvent.MessageDeltaEvent)
         val deltaEvent = event as GatewayEvent.MessageDeltaEvent

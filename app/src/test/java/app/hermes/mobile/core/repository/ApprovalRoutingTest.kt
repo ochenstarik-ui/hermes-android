@@ -59,7 +59,17 @@ class ApprovalRoutingTest {
         connectionManager = HermesConnectionManager(
             hostDao = hostDao,
             tokenVault = tokenVault,
-            scope = CoroutineScope(testDispatcher)
+            scope = CoroutineScope(testDispatcher),
+            runtimeFactory = { parentScope, host ->
+                val childScope = CoroutineScope(kotlinx.coroutines.SupervisorJob(parentScope.coroutineContext[kotlinx.coroutines.Job]) + testDispatcher)
+                HermesHostRuntime(
+                    initialHost = host,
+                    restClient = app.hermes.mobile.core.network.HermesRestClient(),
+                    gatewayClient = JsonRpcGatewayClient(scope = childScope),
+                    tokenVault = tokenVault,
+                    scope = childScope
+                )
+            }
         )
 
         sessionRepo = UnifiedSessionRepository(
