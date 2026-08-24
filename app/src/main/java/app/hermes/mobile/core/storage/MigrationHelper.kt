@@ -30,7 +30,8 @@ object MigrationHelper {
                             allowCleartext = legacy.allowCleartext,
                             enabled = true,
                             lastSeenAt = legacy.createdAt,
-                            lastKnownStatus = HostStatus.OFFLINE.name
+                            lastKnownStatus = HostStatus.OFFLINE.name,
+                            certificateFingerprint = null
                         )
                     )
                 }

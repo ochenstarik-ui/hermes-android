@@ -111,16 +111,4 @@ class UnifiedContextBuilderTest {
         assertEquals("msg-3", syncUpToDate.latestSyncedMessageId)
     }
 
-    @Test
-    fun testMergeContextWithPrompt() {
-        val context = "[Context] Prior conversation summary"
-        val prompt = "List the active containers."
-        val merged = UnifiedContextBuilder.mergeContextWithPrompt(context, prompt)
-
-        assertTrue(merged.startsWith("[Context]"))
-        assertTrue(merged.contains("User request: List the active containers."))
-
-        val emptyMerged = UnifiedContextBuilder.mergeContextWithPrompt("", prompt)
-        assertEquals("List the active containers.", emptyMerged)
-    }
 }

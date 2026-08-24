@@ -26,21 +26,17 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
-import kotlinx.coroutines.channels.Channel
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -59,12 +55,18 @@ sealed class ConnectionState {
 }
 
 class JsonRpcGatewayClient(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .readTimeout(0, TimeUnit.MILLISECONDS) // infinite for websockets
-        .pingInterval(30, TimeUnit.SECONDS)
-        .build(),
+    val client: OkHttpClient = defaultClient(),
     val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
+    companion object {
+        fun defaultClient(certificateFingerprint: String? = null): OkHttpClient {
+            val builder = OkHttpClient.Builder()
+                .readTimeout(0, TimeUnit.MILLISECONDS) // infinite for websockets
+                .pingInterval(30, TimeUnit.SECONDS)
+            return TlsFingerprintTrust.configureClient(builder, certificateFingerprint).build()
+        }
+    }
+
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
@@ -138,22 +140,16 @@ class JsonRpcGatewayClient(
         gatewayReadyDeferred = CompletableDeferred()
         _connectionState.value = ConnectionState.Connecting
 
-        val fullUrl = if (!ticket.isNullOrEmpty()) {
-            val sep = if (wsUrl.contains("?")) "&" else "?"
-            "$wsUrl${sep}ticket=$ticket"
-        } else {
-            wsUrl
+        val requestBuilder = Request.Builder().url(wsUrl)
+        if (!ticket.isNullOrEmpty()) {
+            requestBuilder.header("Authorization", "Bearer $ticket")
         }
-
-        val request = Request.Builder()
-            .url(fullUrl)
-            .build()
+        val request = requestBuilder.build()
 
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (this !== currentListener) return
                 activeWebSocket = webSocket
-                // Keep state as Connecting until gateway.ready event is received
                 _connectionState.value = ConnectionState.Connecting
             }
 
@@ -404,10 +400,13 @@ class JsonRpcGatewayClient(
         )
     }
 
-    suspend fun submitPrompt(runtimeId: RuntimeSessionId, text: String): PromptSubmitResult {
+    suspend fun submitPrompt(runtimeId: RuntimeSessionId, text: String, contextPreamble: String? = null): PromptSubmitResult {
         val params = buildJsonObject {
             put("session_id", runtimeId.value)
             put("text", text)
+            if (contextPreamble != null) {
+                put("context_preamble", contextPreamble)
+            }
         }
         val response = sendRequest("prompt.submit", params)
         if (response.error != null) {

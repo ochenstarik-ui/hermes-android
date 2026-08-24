@@ -12,7 +12,6 @@ import app.hermes.mobile.core.storage.HostEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -31,10 +30,15 @@ class HermesConnectionManager(
     val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     val runtimeFactory: (CoroutineScope, HermesHost) -> HermesHostRuntime = { parentScope, host ->
         val childScope = CoroutineScope(SupervisorJob(parentScope.coroutineContext[kotlinx.coroutines.Job]) + Dispatchers.Default)
+        val hostRestClient = HermesRestClient.forHost(host.certificateFingerprint)
+        val hostGatewayClient = JsonRpcGatewayClient(
+            client = JsonRpcGatewayClient.defaultClient(host.certificateFingerprint),
+            scope = childScope
+        )
         HermesHostRuntime(
             initialHost = host,
-            restClient = restClient,
-            gatewayClient = JsonRpcGatewayClient(scope = childScope),
+            restClient = hostRestClient,
+            gatewayClient = hostGatewayClient,
             tokenVault = tokenVault,
             scope = childScope
         )
@@ -188,7 +192,8 @@ class HermesConnectionManager(
             allowCleartext = allowCleartext,
             enabled = enabled,
             lastSeenAt = lastSeenAt,
-            lastKnownStatus = status
+            lastKnownStatus = status,
+            certificateFingerprint = certificateFingerprint
         )
     }
 
@@ -200,7 +205,8 @@ class HermesConnectionManager(
             allowCleartext = allowCleartext,
             enabled = enabled,
             lastSeenAt = lastSeenAt,
-            lastKnownStatus = lastKnownStatus.name
+            lastKnownStatus = lastKnownStatus.name,
+            certificateFingerprint = certificateFingerprint
         )
     }
 }

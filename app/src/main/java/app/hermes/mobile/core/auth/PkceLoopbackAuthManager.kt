@@ -20,8 +20,15 @@ import java.util.UUID
 
 class PkceLoopbackAuthManager(
     private val restClient: HermesRestClient,
-    private val tokenVault: TokenVault
+    private val tokenVault: TokenVault,
+    private val stateStore: PkceStateStore? = null
 ) {
+    private fun validateUrlScheme(url: String, allowCleartext: Boolean) {
+        if (!allowCleartext && url.startsWith("http://", ignoreCase = true)) {
+            throw SecurityException("Cleartext HTTP is not allowed unless explicitly permitted in connection settings.")
+        }
+    }
+
     suspend fun startAuthFlow(
         context: Context?,
         connectionId: String,
@@ -32,12 +39,26 @@ class PkceLoopbackAuthManager(
     ): Result<NativeAuthTokens> = withContext(Dispatchers.IO) {
         var serverSocket: ServerSocket? = null
         try {
+            val cleanBase = baseUrl.trimEnd('/')
+            validateUrlScheme(cleanBase, allowCleartext)
+
+            val state = UUID.randomUUID().toString()
+            val challenge = PkceChallenge.generate()
+
+            stateStore?.savePendingState(
+                PendingAuthState(
+                    hostId = connectionId,
+                    state = state,
+                    codeVerifier = challenge.codeVerifier,
+                    baseUrl = cleanBase,
+                    allowCleartext = allowCleartext
+                )
+            )
+
             serverSocket = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
             val port = serverSocket.localPort
             serverSocket.soTimeout = 180_000 // 3 minutes timeout
 
-            val state = UUID.randomUUID().toString()
-            val challenge = PkceChallenge.generate()
             val redirectUri = "http://127.0.0.1:$port/callback"
 
             val encodedRedirect = URLEncoder.encode(redirectUri, StandardCharsets.UTF_8.name())
@@ -45,7 +66,6 @@ class PkceLoopbackAuthManager(
             val encodedState = URLEncoder.encode(state, StandardCharsets.UTF_8.name())
             val encodedProvider = URLEncoder.encode(provider, StandardCharsets.UTF_8.name())
 
-            val cleanBase = baseUrl.trimEnd('/')
             val authUrl = "$cleanBase/auth/native/authorize?" +
                     "provider=$encodedProvider" +
                     "&code_challenge=$encodedChallenge" +
@@ -59,8 +79,20 @@ class PkceLoopbackAuthManager(
                 openBrowser(context, authUrl)
             }
 
-            val socket: Socket = serverSocket.accept()
-            val authCode = handleCallbackSocket(socket, state)
+            var authCode: String? = null
+            while (authCode == null) {
+                val socket: Socket = serverSocket.accept()
+                try {
+                    authCode = handleCallbackSocket(socket, state)
+                } catch (e: Exception) {
+                    if (e is SecurityException && e.message?.contains("PKCE State mismatch") == true) {
+                        // Resilient loopback: don't abort entire auth on unrelated rogue connection with bad state, wait for valid redirect
+                        continue
+                    } else {
+                        throw e
+                    }
+                }
+            }
 
             val exchangeResult = restClient.exchangeNativeToken(
                 baseUrl = cleanBase,
@@ -72,6 +104,7 @@ class PkceLoopbackAuthManager(
             if (exchangeResult.isSuccess) {
                 val tokens = exchangeResult.getOrThrow()
                 tokenVault.saveTokens(connectionId, tokens)
+                stateStore?.clearPendingState(state)
                 Result.success(tokens)
             } else {
                 Result.failure(exchangeResult.exceptionOrNull() ?: Exception("Token exchange failed"))
@@ -86,6 +119,48 @@ class PkceLoopbackAuthManager(
         }
     }
 
+    suspend fun handleAuthCallbackUri(uri: Uri): Result<NativeAuthTokens> = withContext(Dispatchers.IO) {
+        try {
+            val state = uri.getQueryParameter("state")
+            val code = uri.getQueryParameter("code")
+            val error = uri.getQueryParameter("error")
+
+            if (!error.isNullOrEmpty()) {
+                return@withContext Result.failure(IllegalStateException("Server returned authorization error: $error"))
+            }
+
+            if (state.isNullOrEmpty()) {
+                return@withContext Result.failure(SecurityException("Missing state parameter in callback URI"))
+            }
+
+            val pendingState = stateStore?.getPendingState(state)
+                ?: return@withContext Result.failure(SecurityException("PKCE State mismatch! Possible CSRF attempt or expired state."))
+
+            if (code.isNullOrEmpty()) {
+                return@withContext Result.failure(IllegalStateException("Missing authorization code in callback URI"))
+            }
+
+            val exchangeResult = restClient.exchangeNativeToken(
+                baseUrl = pendingState.baseUrl,
+                code = code,
+                codeVerifier = pendingState.codeVerifier,
+                allowCleartext = pendingState.allowCleartext
+            )
+
+            stateStore.clearPendingState(state)
+
+            if (exchangeResult.isSuccess) {
+                val tokens = exchangeResult.getOrThrow()
+                tokenVault.saveTokens(pendingState.hostId, tokens)
+                Result.success(tokens)
+            } else {
+                Result.failure(exchangeResult.exceptionOrNull() ?: Exception("Token exchange failed"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     private fun handleCallbackSocket(socket: Socket, expectedState: String): String {
         socket.use { s ->
             val reader = BufferedReader(InputStreamReader(s.getInputStream()))
@@ -93,13 +168,14 @@ class PkceLoopbackAuthManager(
 
             val parts = firstLine.split(" ")
             if (parts.size < 2 || parts[0] != "GET") {
+                sendStaticHtmlResponse(s, 400, isSuccess = false)
                 throw IllegalStateException("Invalid HTTP request method: $firstLine")
             }
 
             val pathAndQuery = parts[1]
             val queryIndex = pathAndQuery.indexOf('?')
             if (queryIndex == -1) {
-                sendHtmlResponse(s, 400, "Missing authorization parameters")
+                sendStaticHtmlResponse(s, 400, isSuccess = false)
                 throw IllegalStateException("Missing query parameters in callback URL: $pathAndQuery")
             }
 
@@ -111,21 +187,21 @@ class PkceLoopbackAuthManager(
             val error = queryParams["error"]
 
             if (error != null) {
-                sendHtmlResponse(s, 400, "Authorization Error: $error")
+                sendStaticHtmlResponse(s, 400, isSuccess = false)
                 throw IllegalStateException("Server returned authorization error: $error")
             }
 
             if (returnedState != expectedState) {
-                sendHtmlResponse(s, 400, "State mismatch error")
+                sendStaticHtmlResponse(s, 400, isSuccess = false)
                 throw SecurityException("PKCE State mismatch! Possible CSRF attempt.")
             }
 
             if (authCode.isNullOrEmpty()) {
-                sendHtmlResponse(s, 400, "Missing authorization code")
+                sendStaticHtmlResponse(s, 400, isSuccess = false)
                 throw IllegalStateException("Authorization code missing in response")
             }
 
-            sendHtmlResponse(s, 200, "Authentication Successful! You can return to Hermes.")
+            sendStaticHtmlResponse(s, 200, isSuccess = true)
             return authCode
         }
     }
@@ -143,7 +219,13 @@ class PkceLoopbackAuthManager(
         return map
     }
 
-    private fun sendHtmlResponse(socket: Socket, statusCode: Int, message: String) {
+    private fun sendStaticHtmlResponse(socket: Socket, statusCode: Int, isSuccess: Boolean) {
+        val message = if (isSuccess) {
+            "Authentication successful! You can return to Hermes."
+        } else {
+            "Authentication failed. Please return to Hermes and try again."
+        }
+
         val html = """
             <!DOCTYPE html>
             <html>
@@ -185,7 +267,7 @@ class PkceLoopbackAuthManager(
                 .setShowTitle(true)
                 .build()
             customTabsIntent.launchUrl(context, Uri.parse(url))
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }

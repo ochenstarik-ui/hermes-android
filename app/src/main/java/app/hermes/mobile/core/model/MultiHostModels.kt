@@ -36,7 +36,8 @@ data class HermesHost(
     val allowCleartext: Boolean = false,
     val enabled: Boolean = true,
     val lastSeenAt: Long = 0L,
-    val lastKnownStatus: HostStatus = HostStatus.OFFLINE
+    val lastKnownStatus: HostStatus = HostStatus.OFFLINE,
+    val certificateFingerprint: String? = null
 )
 
 enum class BindingState {

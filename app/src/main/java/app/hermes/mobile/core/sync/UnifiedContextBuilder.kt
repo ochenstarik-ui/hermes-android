@@ -5,6 +5,7 @@ import app.hermes.mobile.core.model.HermesHostId
 import app.hermes.mobile.core.model.MessageRole
 import app.hermes.mobile.core.model.UnifiedMessage
 import app.hermes.mobile.core.model.UnifiedSession
+import kotlin.math.max
 
 data class SyncContextResult(
     val contextPrompt: String,
@@ -43,11 +44,18 @@ object UnifiedContextBuilder {
             return SyncContextResult(contextPrompt = "", latestSyncedMessageId = null, hasNewContext = false)
         }
 
-        val startIndex = if (syncedThroughMessageId != null) {
+        val maxMessages = 10
+        var startIndex = 0
+
+        if (syncedThroughMessageId != null) {
             val idx = timeline.indexOfFirst { it.id == syncedThroughMessageId }
-            if (idx >= 0) idx + 1 else 0
+            startIndex = if (idx >= 0) idx + 1 else max(0, timeline.size - maxMessages)
         } else {
-            0
+            startIndex = max(0, timeline.size - maxMessages)
+        }
+
+        if (timeline.size - startIndex > maxMessages) {
+            startIndex = max(0, timeline.size - maxMessages)
         }
 
         val messagesToSync = timeline.subList(startIndex, timeline.size)
@@ -100,10 +108,5 @@ object UnifiedContextBuilder {
             latestSyncedMessageId = latestMessageId,
             hasNewContext = true
         )
-    }
-
-    fun mergeContextWithPrompt(contextPrompt: String, userPrompt: String): String {
-        if (contextPrompt.isBlank()) return userPrompt
-        return "$contextPrompt\n\nUser request: $userPrompt"
     }
 }

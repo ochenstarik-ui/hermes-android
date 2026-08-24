@@ -15,7 +15,8 @@ data class HostEntity(
     val allowCleartext: Boolean = false,
     val enabled: Boolean = true,
     val lastSeenAt: Long = 0L,
-    val lastKnownStatus: String = "OFFLINE"
+    val lastKnownStatus: String = "OFFLINE",
+    val certificateFingerprint: String? = null
 )
 
 @Entity(tableName = "unified_sessions")

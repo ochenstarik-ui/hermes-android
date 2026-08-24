@@ -17,17 +17,27 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 class HermesRestClient(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
-        .build(),
+    val client: OkHttpClient = defaultClient(),
     private val json: Json = Json {
         ignoreUnknownKeys = true
         isLenient = true
         coerceInputValues = true
     }
 ) {
+    companion object {
+        fun defaultClient(certificateFingerprint: String? = null): OkHttpClient {
+            val builder = OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .writeTimeout(15, TimeUnit.SECONDS)
+            return TlsFingerprintTrust.configureClient(builder, certificateFingerprint).build()
+        }
+
+        fun forHost(certificateFingerprint: String?): HermesRestClient {
+            return HermesRestClient(client = defaultClient(certificateFingerprint))
+        }
+    }
+
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
     private fun normalizeBaseUrl(baseUrl: String): String {
@@ -53,8 +63,9 @@ class HermesRestClient(
 
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
+                        val errBody = response.body?.string()
                         return@withContext Result.failure(
-                            IOException("HTTP ${response.code}: ${response.message}")
+                            HermesHttpException(response.code, errBody)
                         )
                     }
                     val body = response.body?.string() ?: "{}"
@@ -90,13 +101,18 @@ class HermesRestClient(
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    val errBody = response.body?.string() ?: ""
+                    val errBody = response.body?.string()
                     return@withContext Result.failure(
-                        IOException("HTTP ${response.code}: ${response.message} - $errBody")
+                        HermesHttpException(response.code, errBody)
                     )
                 }
                 val body = response.body?.string() ?: "{}"
-                val tokens = json.decodeFromString<NativeAuthTokens>(body)
+                val rawTokens = json.decodeFromString<NativeAuthTokens>(body)
+                val tokens = if (rawTokens.expiresAt == 0L && rawTokens.expiresIn != null && rawTokens.expiresIn > 0) {
+                    rawTokens.copy(expiresAt = System.currentTimeMillis() / 1000 + rawTokens.expiresIn)
+                } else {
+                    rawTokens
+                }
                 Result.success(tokens)
             }
         } catch (e: Exception) {
@@ -130,12 +146,18 @@ class HermesRestClient(
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
+                    val errBody = response.body?.string()
                     return@withContext Result.failure(
-                        IOException("HTTP ${response.code}: ${response.message}")
+                        HermesHttpException(response.code, errBody)
                     )
                 }
                 val body = response.body?.string() ?: "{}"
-                val tokens = json.decodeFromString<NativeAuthTokens>(body)
+                val rawTokens = json.decodeFromString<NativeAuthTokens>(body)
+                val tokens = if (rawTokens.expiresAt == 0L && rawTokens.expiresIn != null && rawTokens.expiresIn > 0) {
+                    rawTokens.copy(expiresAt = System.currentTimeMillis() / 1000 + rawTokens.expiresIn)
+                } else {
+                    rawTokens
+                }
                 Result.success(tokens)
             }
         } catch (e: Exception) {
@@ -162,8 +184,9 @@ class HermesRestClient(
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
+                    val errBody = response.body?.string()
                     return@withContext Result.failure(
-                        IOException("HTTP ${response.code}: ${response.message}")
+                        HermesHttpException(response.code, errBody)
                     )
                 }
                 val body = response.body?.string() ?: "{}"

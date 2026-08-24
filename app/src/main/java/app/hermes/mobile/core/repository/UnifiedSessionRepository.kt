@@ -337,7 +337,8 @@ class UnifiedSessionRepository(
             syncedThroughMessageId = binding.syncedThroughMessageId
         )
 
-        val promptToSend = if (syncResult.hasNewContext && currentSession.timeline.isNotEmpty()) {
+        val promptToSend = text
+        val contextPreamble = if (syncResult.hasNewContext && currentSession.timeline.isNotEmpty()) {
             // Include context transfer message in timeline as a visual marker
             val transferMsg = UnifiedMessage(
                 id = UUID.randomUUID().toString(),
@@ -348,9 +349,9 @@ class UnifiedSessionRepository(
                 createdAt = System.currentTimeMillis()
             )
             insertMessageToSession(sessionId, transferMsg, immediate = true)
-            UnifiedContextBuilder.mergeContextWithPrompt(syncResult.contextPrompt, text)
+            syncResult.contextPrompt
         } else {
-            text
+            null
         }
 
         // Insert user message to timeline
@@ -368,7 +369,7 @@ class UnifiedSessionRepository(
         sessionDao.updateBindingState(sessionId.value, targetHostId.value, BindingState.RUNNING.name)
 
         return try {
-            val result = runtime.gatewayClient.submitPrompt(binding.runtimeSessionId, promptToSend)
+            val result = runtime.gatewayClient.submitPrompt(binding.runtimeSessionId, promptToSend, contextPreamble)
 
             // ONLY update binding sync status AFTER successful acceptance of prompt.submit!
             sessionDao.updateBindingSync(

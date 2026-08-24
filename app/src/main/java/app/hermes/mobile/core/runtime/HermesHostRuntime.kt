@@ -6,6 +6,7 @@ import app.hermes.mobile.core.model.HermesServerStatus
 import app.hermes.mobile.core.model.HostGatewayEvent
 import app.hermes.mobile.core.model.HostStatus
 import app.hermes.mobile.core.network.ConnectionState
+import app.hermes.mobile.core.network.HermesHttpException
 import app.hermes.mobile.core.network.HermesRestClient
 import app.hermes.mobile.core.network.JsonRpcGatewayClient
 import app.hermes.mobile.core.security.TokenVault
@@ -14,7 +15,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,10 +31,13 @@ import kotlin.random.Random
 
 class HermesHostRuntime(
     initialHost: HermesHost,
-    val restClient: HermesRestClient = HermesRestClient(),
+    val restClient: HermesRestClient = HermesRestClient.forHost(initialHost.certificateFingerprint),
     val tokenVault: TokenVault,
     val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-    val gatewayClient: JsonRpcGatewayClient = JsonRpcGatewayClient(scope = scope)
+    val gatewayClient: JsonRpcGatewayClient = JsonRpcGatewayClient(
+        client = JsonRpcGatewayClient.defaultClient(initialHost.certificateFingerprint),
+        scope = scope
+    )
 ) {
     private val _host = MutableStateFlow(initialHost)
     val host: StateFlow<HermesHost> = _host.asStateFlow()
@@ -184,8 +187,10 @@ class HermesHostRuntime(
                         tokenVault.saveTokens(currentHost.id.value, newTokens)
                         tokens = newTokens
                     } else {
-                        val errMsg = refreshRes.exceptionOrNull()?.message ?: ""
-                        if (errMsg.contains("401") || errMsg.contains("session_expired") || errMsg.contains("invalid_grant")) {
+                        val refreshEx = refreshRes.exceptionOrNull()
+                        val isUnauthorized = (refreshEx is HermesHttpException && refreshEx.statusCode == 401)
+                        val errMsg = refreshEx?.message ?: ""
+                        if (isUnauthorized || errMsg.contains("session_expired") || errMsg.contains("invalid_grant")) {
                             tokenVault.clearTokens(currentHost.id.value)
                             _status.value = HostStatus.AUTH_EXPIRED
                             gatewayClient.setAuthExpired("Session expired for ${currentHost.displayName}")
@@ -201,8 +206,9 @@ class HermesHostRuntime(
                 )
 
                 if (ticketResult.isFailure) {
-                    val errMsg = ticketResult.exceptionOrNull()?.message ?: ""
-                    if (errMsg.contains("401") && tokens.refreshToken.isNotEmpty()) {
+                    val ticketEx = ticketResult.exceptionOrNull()
+                    val isUnauthorized = (ticketEx is HermesHttpException && ticketEx.statusCode == 401)
+                    if (isUnauthorized && tokens.refreshToken.isNotEmpty()) {
                         val refreshRes = restClient.refreshNativeToken(
                             baseUrl = currentHost.baseUrl,
                             refreshToken = tokens.refreshToken,
@@ -219,16 +225,22 @@ class HermesHostRuntime(
                                 allowCleartext = currentHost.allowCleartext
                             )
                         } else {
-                            tokenVault.clearTokens(currentHost.id.value)
-                            _status.value = HostStatus.AUTH_EXPIRED
-                            gatewayClient.setAuthExpired("Session expired for ${currentHost.displayName}")
-                            return Result.failure(IllegalStateException("Session expired. Please sign in again."))
+                            val refreshEx = refreshRes.exceptionOrNull()
+                            val refreshUnauthorized = (refreshEx is HermesHttpException && refreshEx.statusCode == 401)
+                            val refreshMsg = refreshEx?.message ?: ""
+                            if (refreshUnauthorized || refreshMsg.contains("session_expired") || refreshMsg.contains("invalid_grant")) {
+                                tokenVault.clearTokens(currentHost.id.value)
+                                _status.value = HostStatus.AUTH_EXPIRED
+                                gatewayClient.setAuthExpired("Session expired for ${currentHost.displayName}")
+                                return Result.failure(IllegalStateException("Session expired. Please sign in again."))
+                            }
                         }
                     }
 
                     if (ticketResult.isFailure) {
                         val finalErr = ticketResult.exceptionOrNull()
-                        if (finalErr?.message?.contains("401") == true) {
+                        val isFinalUnauthorized = (finalErr is HermesHttpException && finalErr.statusCode == 401)
+                        if (isFinalUnauthorized) {
                             tokenVault.clearTokens(currentHost.id.value)
                             _status.value = HostStatus.AUTH_EXPIRED
                             gatewayClient.setAuthExpired("Session expired for ${currentHost.displayName}")

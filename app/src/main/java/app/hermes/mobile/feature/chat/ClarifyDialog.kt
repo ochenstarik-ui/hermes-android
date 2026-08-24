@@ -1,5 +1,7 @@
 package app.hermes.mobile.feature.chat
 
+import android.app.Activity
+import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Dns
@@ -25,6 +28,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,15 +38,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.hermes.mobile.core.model.ClarifyType
 import app.hermes.mobile.core.model.HostAttributedClarify
-
-import androidx.compose.runtime.LaunchedEffect
 
 @Composable
 fun ClarifyDialog(
@@ -52,12 +57,27 @@ fun ClarifyDialog(
     var input by remember { mutableStateOf("") }
     val request = attributedClarify.request
     val hostDisplayName = attributedClarify.hostDisplayName
+    val context = LocalContext.current
 
     LaunchedEffect(request.requestId) {
         input = ""
     }
 
     val isMasked = request.promptType == ClarifyType.SUDO || request.promptType == ClarifyType.SECRET
+
+    // Scoped FLAG_SECURE: only enable during the lifetime of this dialog for password/secret fields
+    DisposableEffect(isMasked) {
+        val window = (context as? Activity)?.window
+        if (isMasked) {
+            window?.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        onDispose {
+            if (isMasked) {
+                window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+    }
+
     val title = when (request.promptType) {
         ClarifyType.SUDO -> "Sudo Password Required"
         ClarifyType.SECRET -> "Secret / API Key Required"
@@ -119,6 +139,11 @@ fun ClarifyDialog(
                         )
                     },
                     visualTransformation = if (isMasked) PasswordVisualTransformation() else VisualTransformation.None,
+                    keyboardOptions = if (isMasked) {
+                        KeyboardOptions(keyboardType = KeyboardType.Password)
+                    } else {
+                        KeyboardOptions.Default
+                    },
                     singleLine = isMasked,
                     modifier = Modifier.fillMaxWidth()
                 )

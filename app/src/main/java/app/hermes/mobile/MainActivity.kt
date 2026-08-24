@@ -1,5 +1,6 @@
 package app.hermes.mobile
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -8,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavType
@@ -16,14 +16,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import app.hermes.mobile.core.auth.PkceLoopbackAuthManager
 import app.hermes.mobile.core.model.HermesHostId
 import app.hermes.mobile.core.model.UnifiedSessionId
-import app.hermes.mobile.core.network.HermesRestClient
-import app.hermes.mobile.core.repository.UnifiedSessionRepository
-import app.hermes.mobile.core.runtime.HermesConnectionManager
-import app.hermes.mobile.core.security.EncryptedTokenVault
-import app.hermes.mobile.core.storage.HermesDatabase
 import app.hermes.mobile.core.storage.MigrationHelper
 import app.hermes.mobile.feature.chat.ChatScreen
 import app.hermes.mobile.feature.chat.ChatViewModel
@@ -91,14 +85,15 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val container = (applicationContext as HermesApplication).container
-        
         val db = container.db
         val hostDao = db.hostDao()
-        
+
         // Migrate legacy connections from DataStore if present
         lifecycleScope.launch {
             MigrationHelper.migrateLegacyConnections(applicationContext, hostDao)
         }
+
+        handleAuthIntent(intent)
 
         setContent {
             HermesAndroidTheme {
@@ -108,6 +103,21 @@ class MainActivity : ComponentActivity() {
                 ) {
                     HermesUnifiedAppNavigation(container = container)
                 }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleAuthIntent(intent)
+    }
+
+    private fun handleAuthIntent(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "hermes" && uri.host == "auth-callback") {
+            lifecycleScope.launch {
+                val container = (applicationContext as HermesApplication).container
+                container.pkceAuthManager.handleAuthCallbackUri(uri)
             }
         }
     }

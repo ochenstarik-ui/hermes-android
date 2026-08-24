@@ -53,7 +53,7 @@ Built with **Kotlin**, **Jetpack Compose (Material 3)**, **Coroutines**, **Room 
 2. **Unified Sessions & Context Synchronization**:
    - Create one logical conversation (`UnifiedSession`) that spans multiple physical Hermes hosts.
    - Seamlessly switch active execution hosts mid-conversation via the top-bar dropdown.
-   - **Delta Context Sync**: Injects conversation history and task context to newly attached hosts automatically without full-history re-transmission or secret leakage.
+   - **Delta Context Sync**: When switching execution to a new host, Hermes automatically transfers a bounded context window of the last 10 messages (or since the last synced point, up to 10 max). This context is transferred securely as a distinct system preamble, completely separately from the user's prompt text, avoiding stealth concatenation. Sensitive variables, tokens, API keys, and credentials are automatically stripped/redacted from the transferred context payload before sending.
    - **Host Attribution**: Every response bubble, tool card, and thinking trace displays its originating host badge (e.g. `[Office PC]`, `[Linux Server]`).
    - **Non-Blocking Host Switching**: If Host #1 is executing a long tool or computation and you switch to Host #2, Host #1 completes its work in the background and commits results into the shared timeline.
 
