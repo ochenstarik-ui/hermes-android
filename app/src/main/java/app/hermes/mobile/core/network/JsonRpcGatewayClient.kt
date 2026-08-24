@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
@@ -80,6 +81,7 @@ class JsonRpcGatewayClient(
 
     private val reqCounter = AtomicInteger(0)
     private val pendingRequests = ConcurrentHashMap<String, CompletableDeferred<JsonRpcResponse>>()
+    private val stateLock = Any()
     private var gatewayReadyDeferred = CompletableDeferred<Unit>()
 
     @Volatile
@@ -119,6 +121,9 @@ class JsonRpcGatewayClient(
         }
     }
 
+    @Volatile
+    private var closeLatch: java.util.concurrent.CountDownLatch? = null
+
     private fun nextId(): String = "a${reqCounter.incrementAndGet()}"
 
     fun connect(wsUrl: String, ticket: String? = null, allowCleartext: Boolean = false) {
@@ -129,15 +134,35 @@ class JsonRpcGatewayClient(
             return
         }
 
-        currentListener = null
-        val oldWs = activeWebSocket
-        activeWebSocket = null
-        try {
-            oldWs?.close(1000, "Replaced by new connection")
-            oldWs?.cancel()
-        } catch (_: Exception) {}
+        val oldWs: WebSocket?
+        val oldLatch: java.util.concurrent.CountDownLatch?
+        synchronized(stateLock) {
+            currentListener = null
+            oldWs = activeWebSocket
+            oldLatch = closeLatch
+            activeWebSocket = null
+            if (!gatewayReadyDeferred.isCompleted) {
+                gatewayReadyDeferred.completeExceptionally(IOException("Replaced by new connection"))
+            }
+            gatewayReadyDeferred = CompletableDeferred()
+            closeLatch = java.util.concurrent.CountDownLatch(1)
+        }
+        
+        if (oldWs != null) {
+            try {
+                oldWs.close(1000, "Replaced by new connection")
+            } catch (_: Exception) {}
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    if (oldLatch?.await(2, java.util.concurrent.TimeUnit.SECONDS) == false) {
+                        oldWs.cancel()
+                    }
+                } catch (_: Exception) {
+                    oldWs.cancel()
+                }
+            }
+        }
 
-        gatewayReadyDeferred = CompletableDeferred()
         _connectionState.value = ConnectionState.Connecting
 
         val requestBuilder = Request.Builder().url(wsUrl)
@@ -149,7 +174,9 @@ class JsonRpcGatewayClient(
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (this !== currentListener) return
-                activeWebSocket = webSocket
+                synchronized(stateLock) {
+                    activeWebSocket = webSocket
+                }
                 _connectionState.value = ConnectionState.Connecting
             }
 
@@ -159,62 +186,100 @@ class JsonRpcGatewayClient(
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                if (this !== currentListener || webSocket !== activeWebSocket) return
-                webSocket.close(code, reason)
+                try {
+                    webSocket.close(code, reason)
+                } catch (_: Exception) {}
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (this !== currentListener || webSocket !== activeWebSocket) return
-                _connectionState.value = ConnectionState.Disconnected
-                if (!gatewayReadyDeferred.isCompleted) {
-                    gatewayReadyDeferred.completeExceptionally(IOException("WebSocket closed: $code $reason"))
+                closeLatch?.countDown()
+                synchronized(stateLock) {
+                    if (this !== currentListener) return
+                    _connectionState.value = ConnectionState.Disconnected
+                    if (!gatewayReadyDeferred.isCompleted) {
+                        gatewayReadyDeferred.completeExceptionally(IOException("WebSocket closed: $code $reason"))
+                    }
                 }
                 failPendingRequests(IOException("WebSocket closed: $code $reason"))
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                if (this !== currentListener || webSocket !== activeWebSocket) return
-                _connectionState.value = ConnectionState.Failed(t)
-                if (!gatewayReadyDeferred.isCompleted) {
-                    gatewayReadyDeferred.completeExceptionally(t)
+                closeLatch?.countDown()
+                synchronized(stateLock) {
+                    if (this !== currentListener) return
+                    _connectionState.value = ConnectionState.Failed(t)
+                    if (!gatewayReadyDeferred.isCompleted) {
+                        gatewayReadyDeferred.completeExceptionally(t)
+                    }
                 }
                 failPendingRequests(t)
             }
         }
 
-        currentListener = listener
+        synchronized(stateLock) {
+            currentListener = listener
+        }
         val newWs = client.newWebSocket(request, listener)
-        activeWebSocket = newWs
+        synchronized(stateLock) {
+            if (currentListener === listener) {
+                activeWebSocket = newWs
+            }
+        }
     }
 
     suspend fun awaitGatewayReady(timeoutMs: Long = 10_000) {
         if (_connectionState.value is ConnectionState.Connected) return
+        val deferred = synchronized(stateLock) {
+            if (_connectionState.value is ConnectionState.Connected) return
+            gatewayReadyDeferred
+        }
         withTimeout(timeoutMs) {
-            gatewayReadyDeferred.await()
+            deferred.await()
         }
     }
 
     fun setAuthExpired(message: String = "Session expired. Please sign in again.") {
         _connectionState.value = ConnectionState.AuthExpired(message)
-        if (!gatewayReadyDeferred.isCompleted) {
-            gatewayReadyDeferred.completeExceptionally(IOException(message))
+        synchronized(stateLock) {
+            if (!gatewayReadyDeferred.isCompleted) {
+                gatewayReadyDeferred.completeExceptionally(IOException(message))
+            }
         }
         failPendingRequests(IOException(message))
     }
 
     fun disconnect() {
-        currentListener = null
-        val ws = activeWebSocket
-        activeWebSocket = null
+        val ws: WebSocket?
+        val latch: java.util.concurrent.CountDownLatch?
+        synchronized(stateLock) {
+            ws = activeWebSocket
+            latch = closeLatch
+            activeWebSocket = null
+            currentListener = null
+            if (!gatewayReadyDeferred.isCompleted) {
+                gatewayReadyDeferred.completeExceptionally(IOException("Client disconnected"))
+            }
+        }
+
+        if (ws != null) {
+            try {
+                ws.close(1000, "Client initiated disconnect")
+            } catch (_: Exception) {}
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    if (latch?.await(2, java.util.concurrent.TimeUnit.SECONDS) == false) {
+                        ws.cancel()
+                    }
+                } catch (_: Exception) {
+                    ws.cancel()
+                }
+            }
+        }
         try {
-            ws?.close(1000, "Client initiated disconnect")
-            ws?.cancel()
-        } catch (_: Exception) {
-        }
+            client.dispatcher.cancelAll()
+            client.connectionPool.evictAll()
+        } catch (_: Exception) {}
         _connectionState.value = ConnectionState.Disconnected
-        if (!gatewayReadyDeferred.isCompleted) {
-            gatewayReadyDeferred.completeExceptionally(IOException("Client disconnected"))
-        }
         failPendingRequests(IOException("Client disconnected"))
     }
 
@@ -262,8 +327,10 @@ class JsonRpcGatewayClient(
             }
             if (event is GatewayEvent.GatewayReadyEvent) {
                 _connectionState.value = ConnectionState.Connected
-                if (!gatewayReadyDeferred.isCompleted) {
-                    gatewayReadyDeferred.complete(Unit)
+                synchronized(stateLock) {
+                    if (!gatewayReadyDeferred.isCompleted) {
+                        gatewayReadyDeferred.complete(Unit)
+                    }
                 }
             }
             dispatchEvent(event)

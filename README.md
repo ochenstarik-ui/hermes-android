@@ -61,7 +61,12 @@ Built with **Kotlin**, **Jetpack Compose (Material 3)**, **Coroutines**, **Room 
    - Host-scoped credentials stored securely in Android Keystore (`hostId -> tokens`).
    - **Host-Targeted Approvals & Clarifications**: Dangerous command approvals (`approval.request`) and sudo prompts route back strictly to the exact host runtime and native session that emitted them.
 
-4. **Local Persistence (Room DB)**:
+4. **Background Execution & Synchronization**:
+   - Long-running host tasks (like heavy computations, builds, or lengthy agent turns) will continue safely in the background even if you minimize the application or switch apps.
+   - When active tasks are running, a foreground service (notification: "Hermes Agent active") keeps the sync socket alive and commits incoming tool usage or results back to the local database timeline.
+   - The service terminates automatically the moment the task completes or errors out, preserving battery life and conforming to Android Play Store `dataSync` foreground policies.
+
+5. **Local Persistence (Room DB)**:
    - Full offline caching for `UnifiedSession`, `HostSessionBinding`, and `UnifiedMessage`.
    - Raw native session browser for inspecting individual host histories.
 

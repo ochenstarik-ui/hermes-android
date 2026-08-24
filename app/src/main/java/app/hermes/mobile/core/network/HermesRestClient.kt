@@ -16,7 +16,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class HermesRestClient(
+open class HermesRestClient(
     val client: OkHttpClient = defaultClient(),
     private val json: Json = Json {
         ignoreUnknownKeys = true
@@ -27,6 +27,7 @@ class HermesRestClient(
     companion object {
         fun defaultClient(certificateFingerprint: String? = null): OkHttpClient {
             val builder = OkHttpClient.Builder()
+                .connectionPool(okhttp3.ConnectionPool(0, 1, TimeUnit.MILLISECONDS))
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(15, TimeUnit.SECONDS)
                 .writeTimeout(15, TimeUnit.SECONDS)
@@ -50,7 +51,7 @@ class HermesRestClient(
         }
     }
 
-    suspend fun getStatus(baseUrl: String, allowCleartext: Boolean = false): Result<HermesServerStatus> =
+    open suspend fun getStatus(baseUrl: String, allowCleartext: Boolean = false): Result<HermesServerStatus> =
         withContext(Dispatchers.IO) {
             try {
                 val base = normalizeBaseUrl(baseUrl)
@@ -58,6 +59,7 @@ class HermesRestClient(
                 val url = "$base/api/status"
                 val request = Request.Builder()
                     .url(url)
+                    .header("Connection", "close")
                     .get()
                     .build()
 

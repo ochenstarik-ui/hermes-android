@@ -23,9 +23,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.IOException
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.min
 import kotlin.random.Random
 
@@ -81,23 +84,56 @@ class HermesHostRuntime(
         }
     }
 
-    private var reconnectJob: Job? = null
-    private var autoReconnectEnabled = false
-    private var reconnectAttempt = 0
+    companion object {
+        const val MAX_RECONNECT_ATTEMPTS = 5
+    }
 
-    init {
+    private val reconnectMutex = Mutex()
+    private var reconnectJob: Job? = null
+    private val autoReconnectEnabled = AtomicBoolean(false)
+    private val reconnectAttempt = AtomicInteger(0)
+
+    fun isAutoReconnectActive(): Boolean = autoReconnectEnabled.get()
+
+    fun getReconnectAttemptCount(): Int = reconnectAttempt.get()
+
+    fun onNetworkRestored() {
+        reconnectAttempt.set(0)
+        if (_host.value.enabled && (_status.value == HostStatus.ERROR || _status.value == HostStatus.OFFLINE)) {
+            autoReconnectEnabled.set(true)
+            scheduleReconnect()
+        }
+    }
+
+    fun onNetworkLost() {
         scope.launch {
-            gatewayClient.events.collect { event ->
-                dispatchEvent(HostGatewayEvent(hostId, event))
+            reconnectMutex.withLock {
+                reconnectJob?.cancel()
+                reconnectJob = null
             }
         }
+        if (_status.value == HostStatus.CONNECTING || _status.value == HostStatus.ONLINE) {
+            _status.value = HostStatus.OFFLINE
+        }
+    }
 
-        scope.launch {
+    init {
+        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            gatewayClient.events.collect { event ->
+                _events.emit(HostGatewayEvent(hostId, event))
+            }
+        }
+        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
             gatewayClient.connectionState.collect { state ->
                 when (state) {
                     is ConnectionState.Connected -> {
-                        reconnectAttempt = 0
-                        reconnectJob?.cancel()
+                        reconnectAttempt.set(0)
+                        scope.launch {
+                            reconnectMutex.withLock {
+                                reconnectJob?.cancel()
+                                reconnectJob = null
+                            }
+                        }
                         _status.value = HostStatus.ONLINE
                         updateLastSeen()
                     }
@@ -105,13 +141,18 @@ class HermesHostRuntime(
                         _status.value = HostStatus.CONNECTING
                     }
                     is ConnectionState.AuthExpired -> {
-                        autoReconnectEnabled = false
-                        reconnectJob?.cancel()
+                        autoReconnectEnabled.set(false)
+                        scope.launch {
+                            reconnectMutex.withLock {
+                                reconnectJob?.cancel()
+                                reconnectJob = null
+                            }
+                        }
                         _status.value = HostStatus.AUTH_EXPIRED
                     }
                     is ConnectionState.Failed -> {
                         _status.value = HostStatus.ERROR
-                        if (autoReconnectEnabled) {
+                        if (autoReconnectEnabled.get()) {
                             scheduleReconnect()
                         }
                     }
@@ -119,7 +160,7 @@ class HermesHostRuntime(
                         if (_status.value != HostStatus.AUTH_EXPIRED && _status.value != HostStatus.AUTH_REQUIRED) {
                             _status.value = HostStatus.OFFLINE
                         }
-                        if (autoReconnectEnabled) {
+                        if (autoReconnectEnabled.get()) {
                             scheduleReconnect()
                         }
                     }
@@ -151,7 +192,12 @@ class HermesHostRuntime(
     }
 
     suspend fun connect(): Result<Unit> {
-        autoReconnectEnabled = true
+        autoReconnectEnabled.set(true)
+        reconnectAttempt.set(0)
+        reconnectMutex.withLock {
+            reconnectJob?.cancel()
+            reconnectJob = null
+        }
         return connectInternal()
     }
 
@@ -161,7 +207,11 @@ class HermesHostRuntime(
 
         return try {
             val statusResult = restClient.getStatus(currentHost.baseUrl, currentHost.allowCleartext)
-            val sStatus = statusResult.getOrNull() ?: HermesServerStatus()
+            if (statusResult.isFailure) {
+                _status.value = HostStatus.ERROR
+                return Result.failure(statusResult.exceptionOrNull() ?: IOException("Failed to check host status"))
+            }
+            val sStatus = statusResult.getOrThrow()
             _serverStatus.value = sStatus
 
             var ticket: String? = null
@@ -259,6 +309,10 @@ class HermesHostRuntime(
                 ticket = ticket,
                 allowCleartext = currentHost.allowCleartext
             )
+            gatewayClient.awaitGatewayReady(10_000)
+            reconnectAttempt.set(0)
+            _status.value = HostStatus.ONLINE
+            updateLastSeen()
             Result.success(Unit)
         } catch (e: Exception) {
             _status.value = HostStatus.ERROR
@@ -266,26 +320,61 @@ class HermesHostRuntime(
         }
     }
 
-    private fun scheduleReconnect() {
-        if (reconnectJob?.isActive == true) return
-        reconnectJob = scope.launch {
-            val baseDelay = min(30_000L, (1000L * (1 shl min(reconnectAttempt, 5))))
-            val jitter = Random.nextLong(0, 1000)
-            val totalDelay = baseDelay + jitter
-            reconnectAttempt++
+    internal fun scheduleReconnect() {
+        if (!autoReconnectEnabled.get() || !_host.value.enabled) return
+        if (reconnectAttempt.get() >= MAX_RECONNECT_ATTEMPTS) {
+            autoReconnectEnabled.set(false)
+            _status.value = HostStatus.ERROR
+            return
+        }
 
-            delay(totalDelay)
-            try {
-                connectInternal()
-            } catch (_: Exception) {
+        scope.launch {
+            reconnectMutex.withLock {
+                if (reconnectJob?.isActive == true) return@withLock
+                if (!autoReconnectEnabled.get() || !_host.value.enabled) return@withLock
+                val currentAttempt = reconnectAttempt.get()
+                if (currentAttempt >= MAX_RECONNECT_ATTEMPTS) {
+                    autoReconnectEnabled.set(false)
+                    _status.value = HostStatus.ERROR
+                    return@withLock
+                }
+
+                reconnectJob = scope.launch {
+                    val attempt = reconnectAttempt.getAndIncrement()
+                    val baseDelay = min(30_000L, 1000L * (1 shl min(attempt, 5)))
+                    val jitter = Random.nextLong(0, 1000)
+                    val totalDelay = baseDelay + jitter
+
+                    delay(totalDelay)
+                    if (!autoReconnectEnabled.get() || !_host.value.enabled) return@launch
+                    val res = connectInternal()
+                    if (res.isFailure && autoReconnectEnabled.get()) {
+                        if (reconnectAttempt.get() >= MAX_RECONNECT_ATTEMPTS) {
+                            autoReconnectEnabled.set(false)
+                            _status.value = HostStatus.ERROR
+                        } else {
+                            scheduleReconnect()
+                        }
+                    }
+                }
             }
         }
     }
 
     fun disconnect() {
-        autoReconnectEnabled = false
-        reconnectJob?.cancel()
+        autoReconnectEnabled.set(false)
+        reconnectAttempt.set(0)
+        scope.launch {
+            reconnectMutex.withLock {
+                reconnectJob?.cancel()
+                reconnectJob = null
+            }
+        }
         gatewayClient.disconnect()
+        try {
+            restClient.client.dispatcher.cancelAll()
+            restClient.client.connectionPool.evictAll()
+        } catch (_: Exception) {}
         _status.value = HostStatus.OFFLINE
     }
 

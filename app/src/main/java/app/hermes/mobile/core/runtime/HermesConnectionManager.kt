@@ -11,6 +11,7 @@ import app.hermes.mobile.core.storage.HostDao
 import app.hermes.mobile.core.storage.HostEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,7 +30,7 @@ class HermesConnectionManager(
     val restClient: HermesRestClient = HermesRestClient(),
     val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     val runtimeFactory: (CoroutineScope, HermesHost) -> HermesHostRuntime = { parentScope, host ->
-        val childScope = CoroutineScope(SupervisorJob(parentScope.coroutineContext[kotlinx.coroutines.Job]) + Dispatchers.Default)
+        val childScope = CoroutineScope(SupervisorJob(parentScope.coroutineContext[Job]) + Dispatchers.Default)
         val hostRestClient = HermesRestClient.forHost(host.certificateFingerprint)
         val hostGatewayClient = JsonRpcGatewayClient(
             client = JsonRpcGatewayClient.defaultClient(host.certificateFingerprint),
@@ -122,21 +123,32 @@ class HermesConnectionManager(
     }
 
     fun getOrCreateRuntime(host: HermesHost): HermesHostRuntime {
-        return runtimes.computeIfAbsent(host.id) {
-            val rt = runtimeFactory(scope, host)
-            // Forward events sequentially
-            scope.launch {
-                rt.events.collect { event ->
-                    dispatchEvent(event)
-                }
+        var rt = runtimes[host.id]
+        if (rt != null) return rt
+        
+        synchronized(runtimes) {
+            rt = runtimes[host.id]
+            if (rt != null) return rt
+            
+            val created = runtimeFactory(scope, host)
+            subscribeToRuntime(created, host.id)
+            runtimes[host.id] = created
+            return created
+        }
+    }
+
+    private fun subscribeToRuntime(rt: HermesHostRuntime, hostId: HermesHostId) {
+        // Forward events sequentially, start undispatched to attach collector immediately
+        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            rt.events.collect { event ->
+                dispatchEvent(event)
             }
-            // Update host status in DB on change
-            scope.launch {
-                rt.status.collect { st ->
-                    hostDao.updateHostStatus(host.id.value, st.name, System.currentTimeMillis())
-                }
+        }
+        // Update host status in DB on change
+        scope.launch {
+            rt.status.collect { st ->
+                hostDao.updateHostStatus(hostId.value, st.name, System.currentTimeMillis())
             }
-            rt
         }
     }
 
@@ -179,8 +191,45 @@ class HermesConnectionManager(
     }
 
     suspend fun refreshAllHosts() {
-        val currentHosts = hostDao.getHosts()
-        _hosts.value = currentHosts.map { it.toDomain() }
+        val currentHosts = hostDao.getHosts().map { it.toDomain() }
+        _hosts.value = currentHosts
+
+        val validIds = currentHosts.map { it.id }.toSet()
+        for ((id, rt) in runtimes) {
+            if (id !in validIds) {
+                rt.close()
+                runtimes.remove(id)
+            }
+        }
+        for (h in currentHosts) {
+            val existingRt = runtimes[h.id]
+            if (existingRt != null) {
+                existingRt.updateHost(h)
+            } else {
+                getOrCreateRuntime(h)
+            }
+        }
+    }
+
+    fun onNetworkAvailable() {
+        for ((_, rt) in runtimes) {
+            if (rt.host.value.enabled) {
+                rt.onNetworkRestored()
+            }
+        }
+    }
+
+    fun onNetworkLost() {
+        for ((_, rt) in runtimes) {
+            rt.onNetworkLost()
+        }
+    }
+
+    fun close() {
+        for ((_, rt) in runtimes) {
+            rt.close()
+        }
+        runtimes.clear()
     }
 
     private fun HostEntity.toDomain(): HermesHost {

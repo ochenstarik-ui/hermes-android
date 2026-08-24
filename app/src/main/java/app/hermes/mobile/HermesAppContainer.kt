@@ -4,6 +4,8 @@ import android.content.Context
 import app.hermes.mobile.core.auth.PkceLoopbackAuthManager
 import app.hermes.mobile.core.auth.PkceStateStore
 import app.hermes.mobile.core.network.HermesRestClient
+import app.hermes.mobile.core.network.LiveNetworkMonitor
+import app.hermes.mobile.core.network.NetworkMonitor
 import app.hermes.mobile.core.repository.UnifiedSessionRepository
 import app.hermes.mobile.core.runtime.HermesConnectionManager
 import app.hermes.mobile.core.security.EncryptedTokenVault
@@ -21,6 +23,7 @@ interface AppContainer {
     val unifiedSessionRepo: UnifiedSessionRepository
     val applicationScope: CoroutineScope
     val stateStore: PkceStateStore? get() = null
+    val networkMonitor: NetworkMonitor? get() = null
 }
 
 class HermesAppContainer(private val context: Context) : AppContainer {
@@ -61,5 +64,9 @@ class HermesAppContainer(private val context: Context) : AppContainer {
             sessionDao = db.unifiedSessionDao(),
             scope = applicationScope
         )
+    }
+
+    override val networkMonitor: NetworkMonitor by lazy {
+        LiveNetworkMonitor(context, connectionManager, applicationScope)
     }
 }

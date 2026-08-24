@@ -69,6 +69,9 @@ class UnifiedSessionRepository(
     private val _activeClarify = MutableStateFlow<HostAttributedClarify?>(null)
     val activeClarify: StateFlow<HostAttributedClarify?> = _activeClarify.asStateFlow()
 
+    private val _hasActiveTasks = MutableStateFlow(false)
+    val hasActiveTasks: StateFlow<Boolean> = _hasActiveTasks.asStateFlow()
+
     // Mapping from (hostId, runtimeSessionId) to sessionId
     private val runtimeToSessionMap = ConcurrentHashMap<Pair<HermesHostId, String>, UnifiedSessionId>()
 
@@ -216,6 +219,7 @@ class UnifiedSessionRepository(
         hostExecutingState.entries.removeIf { it.key.first == sessionId }
         runtimeToSessionMap.entries.removeIf { it.value == sessionId }
         sessionHostMutexes.entries.removeIf { it.key.first == sessionId }
+        _hasActiveTasks.update { hostExecutingState.values.any { it.value } }
     }
 
     fun registerRuntimeBinding(sessionId: UnifiedSessionId, hostId: HermesHostId, runtimeSessionId: RuntimeSessionId) {
@@ -667,6 +671,8 @@ class UnifiedSessionRepository(
         sessionExecutingState.computeIfAbsent(sessionId) {
             MutableStateFlow(false)
         }.update { isAnyHostExecuting }
+        
+        _hasActiveTasks.update { hostExecutingState.values.any { it.value } }
     }
 
     private fun findSessionForEvent(
