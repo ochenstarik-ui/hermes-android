@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +24,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.IOException
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.min
 import kotlin.random.Random
 
@@ -49,6 +52,32 @@ class HermesHostRuntime(
     private val _events = MutableSharedFlow<HostGatewayEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<HostGatewayEvent> = _events.asSharedFlow()
 
+    private val eventQueue = ConcurrentLinkedQueue<HostGatewayEvent>()
+    private val isProcessingEvents = AtomicBoolean(false)
+
+    private fun dispatchEvent(event: HostGatewayEvent) {
+        eventQueue.add(event)
+        drainEventQueue()
+    }
+
+    private fun drainEventQueue() {
+        if (isProcessingEvents.compareAndSet(false, true)) {
+            scope.launch {
+                try {
+                    while (true) {
+                        val next = eventQueue.poll() ?: break
+                        _events.emit(next)
+                    }
+                } finally {
+                    isProcessingEvents.set(false)
+                    if (!eventQueue.isEmpty()) {
+                        drainEventQueue()
+                    }
+                }
+            }
+        }
+    }
+
     private var reconnectJob: Job? = null
     private var autoReconnectEnabled = false
     private var reconnectAttempt = 0
@@ -56,10 +85,7 @@ class HermesHostRuntime(
     init {
         scope.launch {
             gatewayClient.events.collect { event ->
-                val hostEvent = HostGatewayEvent(hostId, event)
-                if (!_events.tryEmit(hostEvent)) {
-                    _events.emit(hostEvent)
-                }
+                dispatchEvent(HostGatewayEvent(hostId, event))
             }
         }
 

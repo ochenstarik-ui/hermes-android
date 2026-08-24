@@ -12,6 +12,7 @@ import app.hermes.mobile.core.storage.HostEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -20,6 +21,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicBoolean
 
 class HermesConnectionManager(
     val hostDao: HostDao,
@@ -47,6 +50,32 @@ class HermesConnectionManager(
 
     private val _allEvents = MutableSharedFlow<HostGatewayEvent>(extraBufferCapacity = 128)
     val allEvents: SharedFlow<HostGatewayEvent> = _allEvents.asSharedFlow()
+
+    private val eventQueue = ConcurrentLinkedQueue<HostGatewayEvent>()
+    private val isProcessingEvents = AtomicBoolean(false)
+
+    private fun dispatchEvent(event: HostGatewayEvent) {
+        eventQueue.add(event)
+        drainEventQueue()
+    }
+
+    private fun drainEventQueue() {
+        if (isProcessingEvents.compareAndSet(false, true)) {
+            scope.launch {
+                try {
+                    while (true) {
+                        val next = eventQueue.poll() ?: break
+                        _allEvents.emit(next)
+                    }
+                } finally {
+                    isProcessingEvents.set(false)
+                    if (!eventQueue.isEmpty()) {
+                        drainEventQueue()
+                    }
+                }
+            }
+        }
+    }
 
     init {
         scope.launch {
@@ -91,12 +120,10 @@ class HermesConnectionManager(
     fun getOrCreateRuntime(host: HermesHost): HermesHostRuntime {
         return runtimes.computeIfAbsent(host.id) {
             val rt = runtimeFactory(scope, host)
-            // Forward events
+            // Forward events sequentially
             scope.launch {
                 rt.events.collect { event ->
-                    if (!_allEvents.tryEmit(event)) {
-                        _allEvents.emit(event)
-                    }
+                    dispatchEvent(event)
                 }
             }
             // Update host status in DB on change

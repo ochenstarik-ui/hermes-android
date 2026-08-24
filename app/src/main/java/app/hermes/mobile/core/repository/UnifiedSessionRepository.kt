@@ -405,6 +405,7 @@ class UnifiedSessionRepository(
     }
 
     private fun insertMessageToSession(sessionId: UnifiedSessionId, message: UnifiedMessage) {
+        if (message.id.isBlank()) return
         val flow = sessionMessagesState.computeIfAbsent(sessionId) {
             MutableStateFlow(emptyList())
         }
@@ -420,6 +421,7 @@ class UnifiedSessionRepository(
         messageId: String,
         transform: (UnifiedMessage) -> UnifiedMessage
     ) {
+        if (messageId.isBlank()) return
         val flow = sessionMessagesState.computeIfAbsent(sessionId) {
             MutableStateFlow(emptyList())
         }
@@ -500,6 +502,7 @@ class UnifiedSessionRepository(
 
         when (event) {
             is GatewayEvent.MessageStartEvent -> {
+                if (event.messageId.isBlank()) return
                 val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
                 setHostExecuting(sessionId, hostId, true)
                 val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
@@ -519,6 +522,7 @@ class UnifiedSessionRepository(
             }
 
             is GatewayEvent.MessageDeltaEvent -> {
+                if (event.messageId.isBlank()) return
                 val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
                 setHostExecuting(sessionId, hostId, true)
                 val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
@@ -541,6 +545,7 @@ class UnifiedSessionRepository(
             }
 
             is GatewayEvent.MessageInterimEvent -> {
+                if (event.messageId.isBlank()) return
                 val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
                 updateMessageInSession(sessionId, event.messageId) {
                     it.copy(content = event.content, isStreaming = true)
@@ -548,6 +553,7 @@ class UnifiedSessionRepository(
             }
 
             is GatewayEvent.MessageCompleteEvent -> {
+                if (event.messageId.isBlank()) return
                 val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
                 setHostExecuting(sessionId, hostId, false)
                 scope.launch {
@@ -576,6 +582,7 @@ class UnifiedSessionRepository(
             }
 
             is GatewayEvent.ThinkingDeltaEvent -> {
+                if (event.messageId.isBlank()) return
                 val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
                 val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
                 val targetAssistant = flow.value.lastOrNull { (it.id == event.messageId || it.role == MessageRole.ASSISTANT) && it.hostId == hostId }
@@ -587,6 +594,7 @@ class UnifiedSessionRepository(
             }
 
             is GatewayEvent.ReasoningDeltaEvent -> {
+                if (event.messageId.isBlank()) return
                 val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
                 val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
                 val targetAssistant = flow.value.lastOrNull { (it.id == event.messageId || it.role == MessageRole.ASSISTANT) && it.hostId == hostId }
@@ -598,6 +606,7 @@ class UnifiedSessionRepository(
             }
 
             is GatewayEvent.ReasoningAvailableEvent -> {
+                if (event.messageId.isBlank()) return
                 val sessionId = findSessionForEvent(hostId, event.sessionId, messageId = event.messageId) ?: return
                 val flow = sessionMessagesState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
                 val targetAssistant = flow.value.lastOrNull { (it.id == event.messageId || it.role == MessageRole.ASSISTANT) && it.hostId == hostId }
@@ -609,22 +618,26 @@ class UnifiedSessionRepository(
             }
 
             is GatewayEvent.ToolStartEvent -> {
+                if (event.toolId.isBlank()) return
                 val sessionId = findSessionForEvent(hostId, event.sessionId) ?: return
                 val tool = ToolActivity(id = event.toolId, name = event.name, status = "running")
                 attachToolToSessionMessage(sessionId, hostId, tool)
             }
 
             is GatewayEvent.ToolProgressEvent -> {
+                if (event.toolId.isBlank()) return
                 val sessionId = findSessionForEvent(hostId, event.sessionId, toolId = event.toolId) ?: return
                 updateToolInSessionMessage(sessionId, event.toolId) { it.copy(progress = event.progress) }
             }
 
             is GatewayEvent.ToolGeneratingEvent -> {
+                if (event.toolId.isBlank()) return
                 val sessionId = findSessionForEvent(hostId, event.sessionId, toolId = event.toolId) ?: return
                 updateToolInSessionMessage(sessionId, event.toolId) { it.copy(status = "generating") }
             }
 
             is GatewayEvent.ToolCompleteEvent -> {
+                if (event.toolId.isBlank()) return
                 val sessionId = findSessionForEvent(hostId, event.sessionId, toolId = event.toolId) ?: return
                 updateToolInSessionMessage(sessionId, event.toolId) {
                     it.copy(
@@ -636,6 +649,7 @@ class UnifiedSessionRepository(
             }
 
             is GatewayEvent.ApprovalRequestEvent -> {
+                if (event.requestId.isBlank()) return
                 val runtimeSessionIdVal = event.sessionKey ?: event.sessionId ?: ""
                 val runtimeSessionId = RuntimeSessionId(runtimeSessionIdVal)
                 val approval = HermesApproval(
@@ -656,6 +670,7 @@ class UnifiedSessionRepository(
             }
 
             is GatewayEvent.ClarifyRequestEvent -> {
+                if (event.requestId.isBlank()) return
                 val runtimeSessionIdVal = event.sessionId
                 val req = HermesClarifyRequest(
                     requestId = event.requestId,
@@ -672,6 +687,7 @@ class UnifiedSessionRepository(
             }
 
             is GatewayEvent.SudoRequestEvent -> {
+                if (event.requestId.isBlank()) return
                 val runtimeSessionIdVal = event.sessionId
                 val req = HermesClarifyRequest(
                     requestId = event.requestId,
@@ -687,6 +703,7 @@ class UnifiedSessionRepository(
             }
 
             is GatewayEvent.SecretRequestEvent -> {
+                if (event.requestId.isBlank()) return
                 val runtimeSessionIdVal = event.sessionId
                 val req = HermesClarifyRequest(
                     requestId = event.requestId,

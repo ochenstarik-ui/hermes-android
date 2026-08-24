@@ -177,40 +177,40 @@ sealed class GatewayEvent {
     companion object {
         private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-        fun parse(root: JsonObject): GatewayEvent {
-            val params = root["params"]?.jsonObject ?: root
+        fun parse(root: JsonObject): GatewayEvent? {
+            val params = (root["params"] as? JsonObject) ?: root
 
             // 1. event type -> params["type"]
-            val eventType = params["type"]?.jsonPrimitive?.content
-                ?: params["event"]?.jsonPrimitive?.content
-                ?: root["type"]?.jsonPrimitive?.content
-                ?: root["event"]?.jsonPrimitive?.content
+            val eventType = params["type"]?.asStringOrNull()
+                ?: params["event"]?.asStringOrNull()
+                ?: root["type"]?.asStringOrNull()
+                ?: root["event"]?.asStringOrNull()
                 ?: ""
 
             // 2. runtime session -> params["session_id"] (Do NOT search inside payload)
-            val sessionId = params["session_id"]?.jsonPrimitive?.content
-                ?: params["session_key"]?.jsonPrimitive?.content
-                ?: root["session_id"]?.jsonPrimitive?.content
-                ?: root["session_key"]?.jsonPrimitive?.content
+            val sessionId = params["session_id"]?.asStringOrNull()
+                ?: params["session_key"]?.asStringOrNull()
+                ?: root["session_id"]?.asStringOrNull()
+                ?: root["session_key"]?.asStringOrNull()
 
             // 3. event body -> params["payload"]
-            val payloadObj = params["payload"]?.jsonObject
-                ?: params["data"]?.jsonObject
-                ?: root["payload"]?.jsonObject
-                ?: root["data"]?.jsonObject
+            val payloadObj = (params["payload"] as? JsonObject)
+                ?: (params["data"] as? JsonObject)
+                ?: (root["payload"] as? JsonObject)
+                ?: (root["data"] as? JsonObject)
                 ?: params
 
             fun getString(vararg keys: String): String {
                 for (k in keys) {
-                    val v = payloadObj[k]?.jsonPrimitive?.content
-                    if (v != null) return v
+                    val v = payloadObj[k]?.asStringOrNull()
+                    if (!v.isNullOrEmpty()) return v
                 }
                 return ""
             }
 
             fun getNullableString(vararg keys: String): String? {
                 for (k in keys) {
-                    val v = payloadObj[k]?.jsonPrimitive?.content
+                    val v = payloadObj[k]?.asStringOrNull()
                     if (v != null) return v
                 }
                 return null
@@ -218,7 +218,7 @@ sealed class GatewayEvent {
 
             fun getLong(vararg keys: String): Long {
                 for (k in keys) {
-                    val v = payloadObj[k]?.jsonPrimitive?.longOrNull
+                    val v = payloadObj[k]?.asLongOrNull()
                     if (v != null) return v
                 }
                 return 0L
@@ -226,7 +226,7 @@ sealed class GatewayEvent {
 
             fun getInt(vararg keys: String): Int {
                 for (k in keys) {
-                    val v = payloadObj[k]?.jsonPrimitive?.intOrNull
+                    val v = payloadObj[k]?.asIntOrNull()
                     if (v != null) return v
                 }
                 return 0
@@ -234,7 +234,7 @@ sealed class GatewayEvent {
 
             fun getBoolean(vararg keys: String): Boolean {
                 for (k in keys) {
-                    val v = payloadObj[k]?.jsonPrimitive?.booleanOrNull
+                    val v = payloadObj[k]?.asBooleanOrNull()
                     if (v != null) return v
                 }
                 return false
@@ -242,7 +242,7 @@ sealed class GatewayEvent {
 
             fun getStringList(key: String): List<String> {
                 val array = payloadObj[key] as? JsonArray ?: return emptyList()
-                return array.mapNotNull { it.jsonPrimitive.content }
+                return array.mapNotNull { it.asStringOrNull() }
             }
 
             return when (eventType) {
@@ -251,78 +251,124 @@ sealed class GatewayEvent {
                     sessionCount = getInt("session_count", "sessions"),
                     rawPayload = root
                 )
-                "message.start" -> MessageStartEvent(
-                    messageId = getString("message_id", "id"),
-                    role = getString("role").ifEmpty { "assistant" },
-                    sessionId = sessionId,
-                    rawPayload = root
-                )
-                "message.delta" -> MessageDeltaEvent(
-                    messageId = getString("message_id", "id"),
-                    delta = getString("delta", "text", "chunk"),
-                    sessionId = sessionId,
-                    rawPayload = root
-                )
-                "message.interim" -> MessageInterimEvent(
-                    messageId = getString("message_id", "id"),
-                    content = getString("content", "text"),
-                    sessionId = sessionId,
-                    rawPayload = root
-                )
-                "message.complete" -> MessageCompleteEvent(
-                    messageId = getString("message_id", "id"),
-                    content = getString("content", "text"),
-                    sessionId = sessionId,
-                    rawPayload = root
-                )
-                "thinking.delta" -> ThinkingDeltaEvent(
-                    messageId = getString("message_id", "id"),
-                    delta = getString("delta", "text", "chunk"),
-                    sessionId = sessionId,
-                    rawPayload = root
-                )
-                "reasoning.delta" -> ReasoningDeltaEvent(
-                    messageId = getString("message_id", "id"),
-                    delta = getString("delta", "text", "chunk"),
-                    sessionId = sessionId,
-                    rawPayload = root
-                )
-                "reasoning.available" -> ReasoningAvailableEvent(
-                    messageId = getString("message_id", "id"),
-                    reasoning = getString("reasoning", "content"),
-                    sessionId = sessionId,
-                    rawPayload = root
-                )
-                "tool.start" -> ToolStartEvent(
-                    toolId = getString("tool_id", "id"),
-                    name = getString("name", "tool_name"),
-                    input = payloadObj["input"],
-                    sessionId = sessionId,
-                    rawPayload = root
-                )
-                "tool.progress" -> ToolProgressEvent(
-                    toolId = getString("tool_id", "id"),
-                    progress = getString("progress", "message"),
-                    sessionId = sessionId,
-                    rawPayload = root
-                )
-                "tool.generating" -> ToolGeneratingEvent(
-                    toolId = getString("tool_id", "id"),
-                    name = getString("name", "tool_name"),
-                    sessionId = sessionId,
-                    rawPayload = root
-                )
-                "tool.complete" -> ToolCompleteEvent(
-                    toolId = getString("tool_id", "id"),
-                    result = getString("result", "output"),
-                    isError = getBoolean("is_error", "error"),
-                    sessionId = sessionId,
-                    rawPayload = root
-                )
+                "message.start" -> {
+                    val messageId = getString("message_id", "id")
+                    if (messageId.isBlank()) return null
+                    MessageStartEvent(
+                        messageId = messageId,
+                        role = getString("role").ifEmpty { "assistant" },
+                        sessionId = sessionId,
+                        rawPayload = root
+                    )
+                }
+                "message.delta" -> {
+                    val messageId = getString("message_id", "id")
+                    if (messageId.isBlank()) return null
+                    MessageDeltaEvent(
+                        messageId = messageId,
+                        delta = getString("delta", "text", "chunk"),
+                        sessionId = sessionId,
+                        rawPayload = root
+                    )
+                }
+                "message.interim" -> {
+                    val messageId = getString("message_id", "id")
+                    if (messageId.isBlank()) return null
+                    MessageInterimEvent(
+                        messageId = messageId,
+                        content = getString("content", "text"),
+                        sessionId = sessionId,
+                        rawPayload = root
+                    )
+                }
+                "message.complete" -> {
+                    val messageId = getString("message_id", "id")
+                    if (messageId.isBlank()) return null
+                    MessageCompleteEvent(
+                        messageId = messageId,
+                        content = getString("content", "text"),
+                        sessionId = sessionId,
+                        rawPayload = root
+                    )
+                }
+                "thinking.delta" -> {
+                    val messageId = getString("message_id", "id")
+                    if (messageId.isBlank()) return null
+                    ThinkingDeltaEvent(
+                        messageId = messageId,
+                        delta = getString("delta", "text", "chunk"),
+                        sessionId = sessionId,
+                        rawPayload = root
+                    )
+                }
+                "reasoning.delta" -> {
+                    val messageId = getString("message_id", "id")
+                    if (messageId.isBlank()) return null
+                    ReasoningDeltaEvent(
+                        messageId = messageId,
+                        delta = getString("delta", "text", "chunk"),
+                        sessionId = sessionId,
+                        rawPayload = root
+                    )
+                }
+                "reasoning.available" -> {
+                    val messageId = getString("message_id", "id")
+                    if (messageId.isBlank()) return null
+                    ReasoningAvailableEvent(
+                        messageId = messageId,
+                        reasoning = getString("reasoning", "content"),
+                        sessionId = sessionId,
+                        rawPayload = root
+                    )
+                }
+                "tool.start" -> {
+                    val toolId = getString("tool_id", "id")
+                    if (toolId.isBlank()) return null
+                    ToolStartEvent(
+                        toolId = toolId,
+                        name = getString("name", "tool_name"),
+                        input = payloadObj["input"],
+                        sessionId = sessionId,
+                        rawPayload = root
+                    )
+                }
+                "tool.progress" -> {
+                    val toolId = getString("tool_id", "id")
+                    if (toolId.isBlank()) return null
+                    ToolProgressEvent(
+                        toolId = toolId,
+                        progress = getString("progress", "message"),
+                        sessionId = sessionId,
+                        rawPayload = root
+                    )
+                }
+                "tool.generating" -> {
+                    val toolId = getString("tool_id", "id")
+                    if (toolId.isBlank()) return null
+                    ToolGeneratingEvent(
+                        toolId = toolId,
+                        name = getString("name", "tool_name"),
+                        sessionId = sessionId,
+                        rawPayload = root
+                    )
+                }
+                "tool.complete" -> {
+                    val toolId = getString("tool_id", "id")
+                    if (toolId.isBlank()) return null
+                    ToolCompleteEvent(
+                        toolId = toolId,
+                        result = getString("result", "output"),
+                        isError = getBoolean("is_error", "error"),
+                        sessionId = sessionId,
+                        rawPayload = root
+                    )
+                }
                 "approval.request" -> {
+                    val requestId = getString("request_id", "id")
+                    if (requestId.isBlank()) return null
                     val choices = getStringList("choices")
                     ApprovalRequestEvent(
-                        requestId = getString("request_id", "id"),
+                        requestId = requestId,
                         command = getNullableString("command"),
                         description = getNullableString("description", "prompt"),
                         choices = if (choices.isNotEmpty()) choices else listOf("once", "deny"),
@@ -331,26 +377,38 @@ sealed class GatewayEvent {
                         rawPayload = root
                     )
                 }
-                "clarify.request" -> ClarifyRequestEvent(
-                    requestId = getString("request_id", "id"),
-                    questionId = getNullableString("question_id", "questionId"),
-                    question = getString("question", "prompt"),
-                    promptType = ClarifyType.CLARIFY,
-                    sessionId = sessionId,
-                    rawPayload = root
-                )
-                "sudo.request" -> SudoRequestEvent(
-                    requestId = getString("request_id", "id"),
-                    question = getString("question", "prompt").ifEmpty { "Administrator password required:" },
-                    sessionId = sessionId,
-                    rawPayload = root
-                )
-                "secret.request" -> SecretRequestEvent(
-                    requestId = getString("request_id", "id"),
-                    question = getString("question", "prompt").ifEmpty { "Secret / Token required:" },
-                    sessionId = sessionId,
-                    rawPayload = root
-                )
+                "clarify.request" -> {
+                    val requestId = getString("request_id", "id")
+                    if (requestId.isBlank()) return null
+                    ClarifyRequestEvent(
+                        requestId = requestId,
+                        questionId = getNullableString("question_id", "questionId"),
+                        question = getString("question", "prompt"),
+                        promptType = ClarifyType.CLARIFY,
+                        sessionId = sessionId,
+                        rawPayload = root
+                    )
+                }
+                "sudo.request" -> {
+                    val requestId = getString("request_id", "id")
+                    if (requestId.isBlank()) return null
+                    SudoRequestEvent(
+                        requestId = requestId,
+                        question = getString("question", "prompt").ifEmpty { "Administrator password required:" },
+                        sessionId = sessionId,
+                        rawPayload = root
+                    )
+                }
+                "secret.request" -> {
+                    val requestId = getString("request_id", "id")
+                    if (requestId.isBlank()) return null
+                    SecretRequestEvent(
+                        requestId = requestId,
+                        question = getString("question", "prompt").ifEmpty { "Secret / Token required:" },
+                        sessionId = sessionId,
+                        rawPayload = root
+                    )
+                }
                 "status.update" -> StatusUpdateEvent(
                     status = getString("status"),
                     message = getNullableString("message"),
@@ -375,12 +433,16 @@ sealed class GatewayEvent {
                     sessionId = sessionId,
                     rawPayload = root
                 )
-                "background.complete" -> BackgroundCompleteEvent(
-                    taskId = getString("task_id", "id"),
-                    result = getNullableString("result"),
-                    sessionId = sessionId,
-                    rawPayload = root
-                )
+                "background.complete" -> {
+                    val taskId = getString("task_id", "id")
+                    if (taskId.isBlank()) return null
+                    BackgroundCompleteEvent(
+                        taskId = taskId,
+                        result = getNullableString("result"),
+                        sessionId = sessionId,
+                        rawPayload = root
+                    )
+                }
                 "error" -> ErrorEvent(
                     code = getInt("code"),
                     message = getString("message").ifEmpty { "Unknown error" },
@@ -396,4 +458,29 @@ sealed class GatewayEvent {
         }
     }
 }
+
+fun JsonElement?.asStringOrNull(): String? {
+    if (this == null || this is kotlinx.serialization.json.JsonNull) return null
+    val primitive = this as? kotlinx.serialization.json.JsonPrimitive ?: return null
+    return primitive.content
+}
+
+fun JsonElement?.asIntOrNull(): Int? {
+    if (this == null || this is kotlinx.serialization.json.JsonNull) return null
+    val primitive = this as? kotlinx.serialization.json.JsonPrimitive ?: return null
+    return primitive.intOrNull
+}
+
+fun JsonElement?.asLongOrNull(): Long? {
+    if (this == null || this is kotlinx.serialization.json.JsonNull) return null
+    val primitive = this as? kotlinx.serialization.json.JsonPrimitive ?: return null
+    return primitive.longOrNull
+}
+
+fun JsonElement?.asBooleanOrNull(): Boolean? {
+    if (this == null || this is kotlinx.serialization.json.JsonNull) return null
+    val primitive = this as? kotlinx.serialization.json.JsonPrimitive ?: return null
+    return primitive.booleanOrNull
+}
+
 

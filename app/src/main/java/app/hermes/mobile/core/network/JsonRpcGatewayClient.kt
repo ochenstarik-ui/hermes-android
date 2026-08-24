@@ -40,10 +40,14 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import kotlinx.coroutines.channels.Channel
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.logging.Logger
 
 sealed class ConnectionState {
     object Disconnected : ConnectionState()
@@ -68,17 +72,50 @@ class JsonRpcGatewayClient(
         encodeDefaults = true
     }
 
+    private val logger = Logger.getLogger(JsonRpcGatewayClient::class.java.name)
+    private val droppedFramesCounter = AtomicInteger(0)
+    val droppedFrames: Int get() = droppedFramesCounter.get()
+
     private val reqCounter = AtomicInteger(0)
     private val pendingRequests = ConcurrentHashMap<String, CompletableDeferred<JsonRpcResponse>>()
     private var gatewayReadyDeferred = CompletableDeferred<Unit>()
 
+    @Volatile
     private var activeWebSocket: WebSocket? = null
+    @Volatile
+    private var currentListener: WebSocketListener? = null
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     private val _events = MutableSharedFlow<GatewayEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<GatewayEvent> = _events.asSharedFlow()
+
+    private val eventQueue = ConcurrentLinkedQueue<GatewayEvent>()
+    private val isProcessingEvents = AtomicBoolean(false)
+
+    private fun dispatchEvent(event: GatewayEvent) {
+        eventQueue.add(event)
+        drainEventQueue()
+    }
+
+    private fun drainEventQueue() {
+        if (isProcessingEvents.compareAndSet(false, true)) {
+            scope.launch {
+                try {
+                    while (true) {
+                        val next = eventQueue.poll() ?: break
+                        _events.emit(next)
+                    }
+                } finally {
+                    isProcessingEvents.set(false)
+                    if (!eventQueue.isEmpty()) {
+                        drainEventQueue()
+                    }
+                }
+            }
+        }
+    }
 
     private fun nextId(): String = "a${reqCounter.incrementAndGet()}"
 
@@ -89,6 +126,14 @@ class JsonRpcGatewayClient(
             )
             return
         }
+
+        currentListener = null
+        val oldWs = activeWebSocket
+        activeWebSocket = null
+        try {
+            oldWs?.close(1000, "Replaced by new connection")
+            oldWs?.cancel()
+        } catch (_: Exception) {}
 
         gatewayReadyDeferred = CompletableDeferred()
         _connectionState.value = ConnectionState.Connecting
@@ -104,21 +149,26 @@ class JsonRpcGatewayClient(
             .url(fullUrl)
             .build()
 
-        activeWebSocket = client.newWebSocket(request, object : WebSocketListener() {
+        val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (this !== currentListener) return
+                activeWebSocket = webSocket
                 // Keep state as Connecting until gateway.ready event is received
                 _connectionState.value = ConnectionState.Connecting
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (this !== currentListener || webSocket !== activeWebSocket) return
                 handleIncomingMessage(text)
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                if (this !== currentListener || webSocket !== activeWebSocket) return
                 webSocket.close(code, reason)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (this !== currentListener || webSocket !== activeWebSocket) return
                 _connectionState.value = ConnectionState.Disconnected
                 if (!gatewayReadyDeferred.isCompleted) {
                     gatewayReadyDeferred.completeExceptionally(IOException("WebSocket closed: $code $reason"))
@@ -127,13 +177,18 @@ class JsonRpcGatewayClient(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (this !== currentListener || webSocket !== activeWebSocket) return
                 _connectionState.value = ConnectionState.Failed(t)
                 if (!gatewayReadyDeferred.isCompleted) {
                     gatewayReadyDeferred.completeExceptionally(t)
                 }
                 failPendingRequests(t)
             }
-        })
+        }
+
+        currentListener = listener
+        val newWs = client.newWebSocket(request, listener)
+        activeWebSocket = newWs
     }
 
     suspend fun awaitGatewayReady(timeoutMs: Long = 10_000) {
@@ -152,12 +207,14 @@ class JsonRpcGatewayClient(
     }
 
     fun disconnect() {
+        currentListener = null
+        val ws = activeWebSocket
+        activeWebSocket = null
         try {
-            activeWebSocket?.close(1000, "Client initiated disconnect")
-            activeWebSocket?.cancel()
+            ws?.close(1000, "Client initiated disconnect")
+            ws?.cancel()
         } catch (_: Exception) {
         }
-        activeWebSocket = null
         _connectionState.value = ConnectionState.Disconnected
         if (!gatewayReadyDeferred.isCompleted) {
             gatewayReadyDeferred.completeExceptionally(IOException("Client disconnected"))
@@ -202,20 +259,21 @@ class JsonRpcGatewayClient(
             }
 
             // 2. Otherwise, treat as Gateway Event / Notification
-            val event = GatewayEvent.parse(root)
+            val event = GatewayEvent.parse(root) ?: run {
+                val count = droppedFramesCounter.incrementAndGet()
+                logger.warning("Dropped invalid or unparseable gateway event frame #$count")
+                return
+            }
             if (event is GatewayEvent.GatewayReadyEvent) {
                 _connectionState.value = ConnectionState.Connected
                 if (!gatewayReadyDeferred.isCompleted) {
                     gatewayReadyDeferred.complete(Unit)
                 }
             }
-            if (!_events.tryEmit(event)) {
-                scope.launch {
-                    _events.emit(event)
-                }
-            }
+            dispatchEvent(event)
         } catch (e: Exception) {
-            // Ignore corrupted frames gracefully or log if debug
+            val count = droppedFramesCounter.incrementAndGet()
+            logger.warning("Dropped corrupted incoming frame #$count: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
 
