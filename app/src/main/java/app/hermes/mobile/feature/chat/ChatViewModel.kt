@@ -25,8 +25,8 @@ class ChatViewModel(
     val hosts: StateFlow<List<HermesHost>> = connectionManager.hosts
     val messages: StateFlow<List<UnifiedMessage>> = sessionRepo.getSessionMessages(sessionId)
     val isExecuting: StateFlow<Boolean> = sessionRepo.getSessionExecuting(sessionId)
-    val activeApprovals: StateFlow<List<HostAttributedApproval>> = sessionRepo.activeApprovals
-    val activeClarify: StateFlow<HostAttributedClarify?> = sessionRepo.activeClarify
+    val activeApprovals: StateFlow<List<HostAttributedApproval>> = sessionRepo.getActiveApprovals(sessionId)
+    val activeClarify: StateFlow<HostAttributedClarify?> = sessionRepo.getActiveClarify(sessionId)
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -42,6 +42,10 @@ class ChatViewModel(
         viewModelScope.launch {
             _currentSession.value = sessionRepo.getUnifiedSession(sessionId)
         }
+    }
+
+    fun clearError() {
+        _uiState.value = _uiState.value.copy(error = null)
     }
 
     fun getHostExecuting(hostId: HermesHostId): StateFlow<Boolean> {
@@ -129,6 +133,14 @@ class ChatViewModel(
                     error = "Failed to submit clarification response"
                 )
             }
+        }
+    }
+
+    fun dismissClarify(attributed: HostAttributedClarify) {
+        viewModelScope.launch {
+            val hostId = attributed.hostId
+            val req = attributed.request
+            sessionRepo.dismissClarify(hostId, req.requestId, req.promptType, req.questionId)
         }
     }
 }

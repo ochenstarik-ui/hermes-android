@@ -55,6 +55,14 @@ class UnifiedSessionRepository(
         }
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
+    // Per-session approval requests state
+    private val sessionApprovalsState = ConcurrentHashMap<UnifiedSessionId, MutableStateFlow<List<HostAttributedApproval>>>()
+
+    // Per-session clarify queue state (FIFO queue of requests)
+    private val sessionClarifyQueueState = ConcurrentHashMap<UnifiedSessionId, MutableStateFlow<List<HostAttributedClarify>>>()
+    private val sessionActiveClarifyFlows = ConcurrentHashMap<UnifiedSessionId, StateFlow<HostAttributedClarify?>>()
+
+    // Global flows (for backward compatibility and system-level monitoring)
     private val _activeApprovals = MutableStateFlow<List<HostAttributedApproval>>(emptyList())
     val activeApprovals: StateFlow<List<HostAttributedApproval>> = _activeApprovals.asStateFlow()
 
@@ -142,6 +150,23 @@ class UnifiedSessionRepository(
         }.asStateFlow()
     }
 
+    fun getActiveApprovals(sessionId: UnifiedSessionId): StateFlow<List<HostAttributedApproval>> {
+        return sessionApprovalsState.computeIfAbsent(sessionId) {
+            MutableStateFlow(emptyList())
+        }.asStateFlow()
+    }
+
+    fun getActiveClarify(sessionId: UnifiedSessionId): StateFlow<HostAttributedClarify?> {
+        return sessionActiveClarifyFlows.computeIfAbsent(sessionId) {
+            val queueFlow = sessionClarifyQueueState.computeIfAbsent(sessionId) {
+                MutableStateFlow(emptyList())
+            }
+            queueFlow
+                .map { list -> list.firstOrNull() }
+                .stateIn(scope, SharingStarted.Eagerly, queueFlow.value.firstOrNull())
+        }
+    }
+
     suspend fun createUnifiedSession(
         title: String = "New Session",
         initialHostId: HermesHostId? = null
@@ -185,6 +210,9 @@ class UnifiedSessionRepository(
         sessionDao.deleteSession(sessionId.value)
         sessionMessagesState.remove(sessionId)
         sessionExecutingState.remove(sessionId)
+        sessionApprovalsState.remove(sessionId)
+        sessionClarifyQueueState.remove(sessionId)
+        sessionActiveClarifyFlows.remove(sessionId)
         hostExecutingState.entries.removeIf { it.key.first == sessionId }
         runtimeToSessionMap.entries.removeIf { it.value == sessionId }
         sessionHostMutexes.entries.removeIf { it.key.first == sessionId }
@@ -403,6 +431,13 @@ class UnifiedSessionRepository(
                     it.hostId == hostId && it.runtimeSessionId == runtimeSessionId && it.approval.requestId == requestId
                 }
             }
+            sessionApprovalsState.values.forEach { flow ->
+                flow.update { current ->
+                    current.filterNot {
+                        it.hostId == hostId && it.runtimeSessionId == runtimeSessionId && it.approval.requestId == requestId
+                    }
+                }
+            }
         }
         return success
     }
@@ -420,9 +455,7 @@ class UnifiedSessionRepository(
             false
         }
         if (success) {
-            _activeClarify.update { current ->
-                if (current?.hostId == hostId && current.request.requestId == requestId) null else current
-            }
+            removeClarifyFromQueues(hostId, requestId)
         }
         return success
     }
@@ -439,9 +472,7 @@ class UnifiedSessionRepository(
             false
         }
         if (success) {
-            _activeClarify.update { current ->
-                if (current?.hostId == hostId && current.request.requestId == requestId) null else current
-            }
+            removeClarifyFromQueues(hostId, requestId)
         }
         return success
     }
@@ -458,11 +489,40 @@ class UnifiedSessionRepository(
             false
         }
         if (success) {
-            _activeClarify.update { current ->
-                if (current?.hostId == hostId && current.request.requestId == requestId) null else current
-            }
+            removeClarifyFromQueues(hostId, requestId)
         }
         return success
+    }
+
+    suspend fun dismissClarify(
+        hostId: HermesHostId,
+        requestId: String,
+        promptType: ClarifyType = ClarifyType.CLARIFY,
+        questionId: String? = null
+    ): Boolean {
+        val runtime = connectionManager.getRuntime(hostId)
+        val success = try {
+            when (promptType) {
+                ClarifyType.CLARIFY -> runtime?.gatewayClient?.respondClarify(requestId, "", questionId) ?: false
+                ClarifyType.SUDO -> runtime?.gatewayClient?.respondSudo(requestId, "") ?: false
+                ClarifyType.SECRET -> runtime?.gatewayClient?.respondSecret(requestId, "") ?: false
+            }
+        } catch (_: Exception) {
+            false
+        }
+        removeClarifyFromQueues(hostId, requestId)
+        return success
+    }
+
+    private fun removeClarifyFromQueues(hostId: HermesHostId, requestId: String) {
+        _activeClarify.update { current ->
+            if (current?.hostId == hostId && current.request.requestId == requestId) null else current
+        }
+        sessionClarifyQueueState.values.forEach { queueFlow ->
+            queueFlow.update { list ->
+                list.filterNot { it.hostId == hostId && it.request.requestId == requestId }
+            }
+        }
     }
 
     private fun insertMessageToSession(sessionId: UnifiedSessionId, message: UnifiedMessage, immediate: Boolean = true) {
@@ -812,6 +872,15 @@ class UnifiedSessionRepository(
                     runtimeSessionId = runtimeSessionId,
                     approval = approval
                 )
+                val sessionId = findSessionForEvent(hostId, runtimeSessionIdVal)
+                if (sessionId != null) {
+                    val sessionFlow = sessionApprovalsState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
+                    sessionFlow.update { current ->
+                        current.filterNot {
+                            it.hostId == hostId && it.runtimeSessionId == runtimeSessionId && it.approval.requestId == event.requestId
+                        } + attributed
+                    }
+                }
                 _activeApprovals.update { current ->
                     current.filterNot {
                         it.hostId == hostId && it.runtimeSessionId == runtimeSessionId && it.approval.requestId == event.requestId
@@ -834,6 +903,13 @@ class UnifiedSessionRepository(
                     runtimeSessionId = runtimeSessionIdVal?.let { RuntimeSessionId(it) },
                     request = req
                 )
+                val sessionId = findSessionForEvent(hostId, event.sessionId)
+                if (sessionId != null) {
+                    val queue = sessionClarifyQueueState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
+                    queue.update { current ->
+                        current.filterNot { it.hostId == hostId && it.request.requestId == event.requestId } + attributed
+                    }
+                }
                 _activeClarify.update { attributed }
             }
 
@@ -851,6 +927,13 @@ class UnifiedSessionRepository(
                     runtimeSessionId = runtimeSessionIdVal?.let { RuntimeSessionId(it) },
                     request = req
                 )
+                val sessionId = findSessionForEvent(hostId, event.sessionId)
+                if (sessionId != null) {
+                    val queue = sessionClarifyQueueState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
+                    queue.update { current ->
+                        current.filterNot { it.hostId == hostId && it.request.requestId == event.requestId } + attributed
+                    }
+                }
                 _activeClarify.update { attributed }
             }
 
@@ -868,6 +951,13 @@ class UnifiedSessionRepository(
                     runtimeSessionId = runtimeSessionIdVal?.let { RuntimeSessionId(it) },
                     request = req
                 )
+                val sessionId = findSessionForEvent(hostId, event.sessionId)
+                if (sessionId != null) {
+                    val queue = sessionClarifyQueueState.computeIfAbsent(sessionId) { MutableStateFlow(emptyList()) }
+                    queue.update { current ->
+                        current.filterNot { it.hostId == hostId && it.request.requestId == event.requestId } + attributed
+                    }
+                }
                 _activeClarify.update { attributed }
             }
 

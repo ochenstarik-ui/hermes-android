@@ -72,6 +72,11 @@ import app.hermes.mobile.core.model.ToolActivity
 import app.hermes.mobile.core.model.UnifiedMessage
 import app.hermes.mobile.core.model.UnifiedMessageSource
 
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
@@ -88,6 +93,23 @@ fun ChatScreen(
 
     val activeHost = hosts.find { it.id == currentSession?.activeHostId }
     val listState = rememberLazyListState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    val errorMessage = uiState.error
+    LaunchedEffect(errorMessage) {
+        if (!errorMessage.isNullOrBlank()) {
+            val sanitized = sanitizeErrorMessage(errorMessage)
+            val result = snackbarHostState.showSnackbar(
+                message = sanitized,
+                actionLabel = "Retry",
+                duration = SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.submitPrompt()
+            }
+            viewModel.clearError()
+        }
+    }
 
     LaunchedEffect(messages.size, messages.lastOrNull()?.content?.length, approvals.size) {
         if (messages.isNotEmpty() || approvals.isNotEmpty()) {
@@ -97,6 +119,7 @@ fun ChatScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             Column {
                 TopAppBar(
@@ -277,12 +300,15 @@ fun ChatScreen(
             }
         }
 
-        if (activeClarify != null) {
+        val clarify = activeClarify
+        if (clarify != null) {
             ClarifyDialog(
-                attributedClarify = activeClarify!!,
-                onDismiss = { /* dismiss */ },
+                attributedClarify = clarify,
+                onDismiss = {
+                    viewModel.dismissClarify(clarify)
+                },
                 onSubmit = { value ->
-                    viewModel.respondClarify(activeClarify!!, value)
+                    viewModel.respondClarify(clarify, value)
                 }
             )
         }
@@ -696,4 +722,9 @@ fun ChatInputBar(
             }
         }
     }
+}
+
+fun sanitizeErrorMessage(error: String): String {
+    val clean = error.lineSequence().firstOrNull()?.trim() ?: "An error occurred"
+    return clean.take(150)
 }

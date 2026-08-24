@@ -180,11 +180,7 @@ class HermesConnectionManager(
     }
 
     private fun HostEntity.toDomain(): HermesHost {
-        val status = try {
-            HostStatus.valueOf(lastKnownStatus)
-        } catch (_: Exception) {
-            HostStatus.OFFLINE
-        }
+        val status = HostStatus.fromStringOrOffline(lastKnownStatus)
         return HermesHost(
             id = HermesHostId(id),
             displayName = displayName,

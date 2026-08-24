@@ -163,7 +163,7 @@ class HostsViewModel(
                     allowCleartext = allowCleartext,
                     enabled = existingHost.enabled,
                     lastSeenAt = existingHost.lastSeenAt,
-                    lastKnownStatus = HostStatus.valueOf(existingHost.lastKnownStatus)
+                    lastKnownStatus = HostStatus.fromStringOrOffline(existingHost.lastKnownStatus)
                 )
                 connectionManager.updateHost(updatedHost)
                 updatedHost
@@ -183,5 +183,13 @@ class HostsViewModel(
             _uiState.value = _uiState.value.copy(scannedPayload = null)
             connectHost(hostToConnect.id)
         }
+    }
+
+    fun clearError() {
+        _uiState.value = _uiState.value.copy(
+            testError = null,
+            authError = null,
+            qrScanError = null
+        )
     }
 }

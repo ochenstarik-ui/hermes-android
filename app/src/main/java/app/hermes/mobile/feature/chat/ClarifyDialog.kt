@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.sp
 import app.hermes.mobile.core.model.ClarifyType
 import app.hermes.mobile.core.model.HostAttributedClarify
 
+import androidx.compose.runtime.LaunchedEffect
+
 @Composable
 fun ClarifyDialog(
     attributedClarify: HostAttributedClarify,
@@ -50,6 +52,10 @@ fun ClarifyDialog(
     var input by remember { mutableStateOf("") }
     val request = attributedClarify.request
     val hostDisplayName = attributedClarify.hostDisplayName
+
+    LaunchedEffect(request.requestId) {
+        input = ""
+    }
 
     val isMasked = request.promptType == ClarifyType.SUDO || request.promptType == ClarifyType.SECRET
     val title = when (request.promptType) {
@@ -65,7 +71,10 @@ fun ClarifyDialog(
     }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            input = ""
+            onDismiss()
+        },
         icon = { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
         title = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -119,7 +128,9 @@ fun ClarifyDialog(
             Button(
                 onClick = {
                     if (input.isNotBlank()) {
-                        onSubmit(input)
+                        val toSubmit = input
+                        input = ""
+                        onSubmit(toSubmit)
                     }
                 },
                 enabled = input.isNotBlank()
@@ -128,7 +139,12 @@ fun ClarifyDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = {
+                    input = ""
+                    onDismiss()
+                }
+            ) {
                 Text("Cancel")
             }
         }

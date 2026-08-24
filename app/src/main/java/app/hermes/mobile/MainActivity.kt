@@ -37,6 +37,53 @@ import app.hermes.mobile.feature.unified_sessions.UnifiedSessionsViewModel
 import app.hermes.mobile.ui.theme.HermesAndroidTheme
 import kotlinx.coroutines.launch
 
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
+
+class AppViewModelFactory(
+    private val container: AppContainer,
+    private val extraArg: Any? = null
+) : ViewModelProvider.Factory {
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        return when {
+            modelClass.isAssignableFrom(UnifiedSessionsViewModel::class.java) -> {
+                UnifiedSessionsViewModel(
+                    sessionRepo = container.unifiedSessionRepo,
+                    connectionManager = container.connectionManager
+                ) as T
+            }
+            modelClass.isAssignableFrom(HostsViewModel::class.java) -> {
+                HostsViewModel(
+                    connectionManager = container.connectionManager,
+                    tokenVault = container.tokenVault,
+                    restClient = container.restClient,
+                    pkceAuthManager = container.pkceAuthManager
+                ) as T
+            }
+            modelClass.isAssignableFrom(ChatViewModel::class.java) -> {
+                val sessionId = extraArg as? UnifiedSessionId
+                    ?: throw IllegalArgumentException("ChatViewModel requires a UnifiedSessionId extraArg")
+                ChatViewModel(
+                    sessionRepo = container.unifiedSessionRepo,
+                    connectionManager = container.connectionManager,
+                    sessionId = sessionId
+                ) as T
+            }
+            modelClass.isAssignableFrom(NativeSessionsViewModel::class.java) -> {
+                val hostId = extraArg as? HermesHostId
+                    ?: throw IllegalArgumentException("NativeSessionsViewModel requires a HermesHostId extraArg")
+                NativeSessionsViewModel(
+                    connectionManager = container.connectionManager,
+                    hostId = hostId
+                ) as T
+            }
+            else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
+        }
+    }
+}
+
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,10 +99,6 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             MigrationHelper.migrateLegacyConnections(applicationContext, hostDao)
         }
-        val tokenVault = container.tokenVault
-        val pkceAuthManager = container.pkceAuthManager
-        val connectionManager = container.connectionManager
-        val unifiedSessionRepo = container.unifiedSessionRepo
 
         setContent {
             HermesAndroidTheme {
@@ -63,12 +106,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    HermesUnifiedAppNavigation(
-                        connectionManager = connectionManager,
-                        sessionRepo = unifiedSessionRepo,
-                        tokenVault = tokenVault,
-                        pkceAuthManager = pkceAuthManager
-                    )
+                    HermesUnifiedAppNavigation(container = container)
                 }
             }
         }
@@ -76,26 +114,17 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun HermesUnifiedAppNavigation(
-    connectionManager: HermesConnectionManager,
-    sessionRepo: UnifiedSessionRepository,
-    tokenVault: EncryptedTokenVault,
-    pkceAuthManager: PkceLoopbackAuthManager
-) {
+fun HermesUnifiedAppNavigation(container: AppContainer) {
     val navController = rememberNavController()
-
-    val unifiedSessionsViewModel = remember {
-        UnifiedSessionsViewModel(sessionRepo, connectionManager)
-    }
-    val hostsViewModel = remember {
-        HostsViewModel(connectionManager, tokenVault, pkceAuthManager = pkceAuthManager)
-    }
 
     NavHost(
         navController = navController,
         startDestination = "unified_sessions"
     ) {
         composable("unified_sessions") {
+            val unifiedSessionsViewModel: UnifiedSessionsViewModel = viewModel(
+                factory = AppViewModelFactory(container)
+            )
             UnifiedSessionsScreen(
                 viewModel = unifiedSessionsViewModel,
                 onNavigateToChat = { sessionId ->
@@ -113,9 +142,9 @@ fun HermesUnifiedAppNavigation(
         ) { backStackEntry ->
             val sessionIdStr = backStackEntry.arguments?.getString("unifiedSessionId") ?: ""
             val sessionId = UnifiedSessionId(sessionIdStr)
-            val chatViewModel = remember(sessionIdStr) {
-                ChatViewModel(sessionRepo, connectionManager, sessionId)
-            }
+            val chatViewModel: ChatViewModel = viewModel(
+                factory = AppViewModelFactory(container, extraArg = sessionId)
+            )
             ChatScreen(
                 viewModel = chatViewModel,
                 onNavigateBack = {
@@ -125,6 +154,9 @@ fun HermesUnifiedAppNavigation(
         }
 
         composable("hosts") {
+            val hostsViewModel: HostsViewModel = viewModel(
+                factory = AppViewModelFactory(container)
+            )
             HostsScreen(
                 viewModel = hostsViewModel,
                 onNavigateBack = {
@@ -142,9 +174,9 @@ fun HermesUnifiedAppNavigation(
         ) { backStackEntry ->
             val hostIdStr = backStackEntry.arguments?.getString("hostId") ?: ""
             val hostId = HermesHostId(hostIdStr)
-            val nativeSessionsViewModel = remember(hostIdStr) {
-                NativeSessionsViewModel(connectionManager, hostId)
-            }
+            val nativeSessionsViewModel: NativeSessionsViewModel = viewModel(
+                factory = AppViewModelFactory(container, extraArg = hostId)
+            )
             NativeSessionsScreen(
                 viewModel = nativeSessionsViewModel,
                 onNavigateBack = {

@@ -14,7 +14,18 @@ enum class HostStatus {
     CONNECTING,
     AUTH_REQUIRED,
     AUTH_EXPIRED,
-    ERROR
+    ERROR;
+
+    companion object {
+        fun fromStringOrOffline(raw: String?): HostStatus {
+            if (raw.isNullOrBlank()) return OFFLINE
+            return try {
+                valueOf(raw.trim())
+            } catch (_: IllegalArgumentException) {
+                OFFLINE
+            }
+        }
+    }
 }
 
 @Serializable

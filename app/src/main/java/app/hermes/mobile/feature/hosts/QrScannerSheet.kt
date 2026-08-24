@@ -28,6 +28,12 @@ import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.Executors
 import android.content.pm.PackageManager
 
+import android.content.Context
+import kotlinx.coroutines.suspendCancellableCoroutine
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QrScannerSheet(
@@ -81,17 +87,34 @@ fun QrScannerSheet(
     }
 }
 
+private suspend fun Context.getCameraProvider(): ProcessCameraProvider = suspendCancellableCoroutine { cont ->
+    val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+    cameraProviderFuture.addListener({
+        try {
+            cont.resume(cameraProviderFuture.get())
+        } catch (e: Exception) {
+            cont.resumeWithException(e)
+        }
+    }, ContextCompat.getMainExecutor(this))
+}
+
 @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
 @Composable
 fun CameraPreview(onQrScanned: (String) -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val currentOnQrScanned by rememberUpdatedState(onQrScanned)
 
-    val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
-    
     val executor = remember { Executors.newSingleThreadExecutor() }
-    var isScanning by remember { mutableStateOf(true) }
+    val scanner = remember {
+        val options = BarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+            .build()
+        BarcodeScanning.getClient(options)
+    }
+
+    var cameraProviderRef by remember { mutableStateOf<ProcessCameraProvider?>(null) }
 
     AndroidView(
         factory = { ctx ->
@@ -102,19 +125,17 @@ fun CameraPreview(onQrScanned: (String) -> Unit) {
         modifier = Modifier.fillMaxSize()
     )
 
-    LaunchedEffect(cameraProviderFuture, previewView, isScanning) {
-        if (previewView == null || !isScanning) return@LaunchedEffect
+    LaunchedEffect(previewView) {
+        val pv = previewView ?: return@LaunchedEffect
+        val isScanning = AtomicBoolean(true)
 
-        cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
+        try {
+            val cameraProvider = context.getCameraProvider()
+            cameraProviderRef = cameraProvider
+
             val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(previewView!!.surfaceProvider)
+                it.setSurfaceProvider(pv.surfaceProvider)
             }
-
-            val options = BarcodeScannerOptions.Builder()
-                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-                .build()
-            val scanner = BarcodeScanning.getClient(options)
 
             val imageAnalysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -122,16 +143,19 @@ fun CameraPreview(onQrScanned: (String) -> Unit) {
 
             imageAnalysis.setAnalyzer(executor) { imageProxy ->
                 val mediaImage = imageProxy.image
-                if (mediaImage != null && isScanning) {
+                if (mediaImage != null && isScanning.get()) {
                     val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
                     scanner.process(image)
                         .addOnSuccessListener { barcodes ->
-                            for (barcode in barcodes) {
-                                val rawValue = barcode.rawValue
-                                if (rawValue != null && rawValue.startsWith("hermes://pair")) {
-                                    isScanning = false
-                                    onQrScanned(rawValue)
-                                    break
+                            if (isScanning.get()) {
+                                for (barcode in barcodes) {
+                                    val rawValue = barcode.rawValue
+                                    if (rawValue != null && rawValue.startsWith("hermes://pair")) {
+                                        if (isScanning.compareAndSet(true, false)) {
+                                            currentOnQrScanned(rawValue)
+                                        }
+                                        break
+                                    }
                                 }
                             }
                         }
@@ -145,22 +169,28 @@ fun CameraPreview(onQrScanned: (String) -> Unit) {
 
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
-            try {
-                cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
-                    lifecycleOwner,
-                    cameraSelector,
-                    preview,
-                    imageAnalysis
-                )
-            } catch (e: Exception) {
-                Log.e("QrScannerSheet", "Use case binding failed", e)
-            }
-        }, ContextCompat.getMainExecutor(context))
+            cameraProvider.unbindAll()
+            cameraProvider.bindToLifecycle(
+                lifecycleOwner,
+                cameraSelector,
+                preview,
+                imageAnalysis
+            )
+        } catch (e: Exception) {
+            Log.e("QrScannerSheet", "Use case binding failed", e)
+        }
     }
-    
+
     DisposableEffect(Unit) {
         onDispose {
+            try {
+                cameraProviderRef?.unbindAll()
+            } catch (_: Exception) {
+            }
+            try {
+                scanner.close()
+            } catch (_: Exception) {
+            }
             executor.shutdown()
         }
     }

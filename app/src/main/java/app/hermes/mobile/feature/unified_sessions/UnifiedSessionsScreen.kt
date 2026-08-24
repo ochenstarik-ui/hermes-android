@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,6 +64,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UnifiedSessionsScreen(
@@ -73,10 +78,26 @@ fun UnifiedSessionsScreen(
     val sessions by viewModel.sessions.collectAsState()
     val hosts by viewModel.hosts.collectAsState()
     val activeHostId by viewModel.activeHostId.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
 
     var showCreateDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    val errorMessage = uiState.error
+    LaunchedEffect(errorMessage) {
+        if (!errorMessage.isNullOrBlank()) {
+            val sanitized = sanitizeErrorMessage(errorMessage)
+            snackbarHostState.showSnackbar(
+                message = sanitized,
+                actionLabel = "Dismiss",
+                duration = SnackbarDuration.Short
+            )
+            viewModel.clearError()
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -389,4 +410,9 @@ private fun formatTimestamp(timestamp: Long): String {
     if (timestamp <= 0) return ""
     val sdf = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
     return sdf.format(Date(timestamp))
+}
+
+private fun sanitizeErrorMessage(error: String): String {
+    val clean = error.lineSequence().firstOrNull()?.trim() ?: "An error occurred"
+    return clean.take(150)
 }
