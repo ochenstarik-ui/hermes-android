@@ -33,7 +33,7 @@ androidxTestExtJunit = "1.2.1"
 espresso = "3.6.1"
 mockk = "1.13.12"
 turbine = "1.2.0"
-json = "20240303"
+json = "20260814"
 
 [libraries]
 # Jetpack Compose BOM & UI
