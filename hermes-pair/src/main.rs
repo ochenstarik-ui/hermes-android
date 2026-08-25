@@ -40,13 +40,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (scheme, port) = resolve_cli_endpoint(hermes_url, qr_args.port.or(args.port))?;
         let iface = qr_args.interface.as_deref().or(args.interface.as_deref());
         let ttl = qr_args.ttl.unwrap_or(args.ttl);
+        let fingerprint = qr_args.fingerprint.clone().or_else(|| args.fingerprint.clone());
         validate_ttl(ttl)?;
-        return run_once(&config, hermes_url, &scheme, port, iface, ttl).await;
+        return run_once(&config, hermes_url, &scheme, port, iface, ttl, fingerprint).await;
     }
 
     let hermes_url_str = args.hermes_url.as_deref();
     let (scheme, port) = resolve_cli_endpoint(hermes_url_str, args.port)?;
     let ttl = args.ttl;
+    let fingerprint = args.fingerprint.clone();
     validate_ttl(ttl)?;
 
     if args.no_gui {
@@ -57,6 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             port,
             args.interface.as_deref(),
             ttl,
+            fingerprint,
         )
         .await;
     }
@@ -69,6 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             port,
             args.interface.as_deref(),
             ttl,
+            fingerprint,
         )
         .await;
     }
@@ -86,6 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hermes_url_owned = args.hermes_url.clone();
     let scheme_clone = scheme.clone();
     let iface = args.interface.clone();
+    let fingerprint_clone = fingerprint.clone();
 
     let res = eframe::run_native(
         "Hermes Pair",
@@ -99,6 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 port,
                 iface,
                 ttl,
+                fingerprint_clone,
             )))
         }),
     );
@@ -113,6 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             port,
             args.interface.as_deref(),
             ttl,
+            fingerprint,
         )
         .await;
     }

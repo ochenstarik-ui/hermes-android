@@ -21,8 +21,10 @@ class HermesPairingParserTest {
         expiresAt: Long = (System.currentTimeMillis() / 1000) + 300,
         nonce: String = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16) { it.toByte() }),
         v: Int = 1,
-        type: String = "hermes-pair"
+        type: String = "hermes-pair",
+        fingerprint: String? = null
     ): String {
+        val fpField = if (fingerprint != null) ",\n                \"fingerprint\": \"$fingerprint\"" else ""
         val json = """
             {
                 "v": $v,
@@ -33,7 +35,7 @@ class HermesPairingParserTest {
                 "port": $port,
                 "scheme": "$scheme",
                 "expires_at": $expiresAt,
-                "nonce": "$nonce"
+                "nonce": "$nonce"$fpField
             }
         """.trimIndent()
         return encodePayload(json)
@@ -93,9 +95,49 @@ class HermesPairingParserTest {
     @Test
     fun testInvalidVersionRejection() {
         val nonce16 = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16))
-        val uri = "hermes://pair?data=${encodePayloadWith16ByteNonce(v = 2, nonce = nonce16)}"
+        val uri = "hermes://pair?data=${encodePayloadWith16ByteNonce(v = 3, nonce = nonce16)}"
         val result = HermesPairingParser.parse(uri)
         assertTrue("Expected UnsupportedProtocolVersion, got $result", result is PairingResult.Failure && result.error is PairingError.UnsupportedProtocolVersion)
+    }
+
+    @Test
+    fun testValidV2PayloadWithFingerprint() {
+        val futureTime = (System.currentTimeMillis() / 1000) + 300
+        val hostId = UUID.randomUUID().toString()
+        val nonce16 = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16) { 0x42 })
+        val fp = "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"
+        val uri = "hermes://pair?data=${encodePayloadWith16ByteNonce(
+            v = 2,
+            hostId = hostId,
+            scheme = "https",
+            expiresAt = futureTime,
+            nonce = nonce16,
+            fingerprint = fp
+        )}"
+        val result = HermesPairingParser.parse(uri)
+
+        assertTrue("Expected PairingResult.Success, got $result", result is PairingResult.Success)
+        val payload = (result as PairingResult.Success).payload
+        assertEquals(2, payload.v)
+        assertEquals(hostId, payload.hostId)
+        assertEquals("https", payload.scheme)
+        assertEquals(fp, payload.fingerprint)
+    }
+
+    @Test
+    fun testInvalidFingerprintRejection() {
+        val nonce16 = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16))
+        val badFps = listOf("not_hex_at_all", "AA:BB", "A".repeat(63), "A".repeat(65))
+        badFps.forEach { badFp ->
+            val uri = "hermes://pair?data=${encodePayloadWith16ByteNonce(
+                v = 2,
+                scheme = "https",
+                nonce = nonce16,
+                fingerprint = badFp
+            )}"
+            val result = HermesPairingParser.parse(uri)
+            assertTrue("Expected InvalidFingerprint for '$badFp', got $result", result is PairingResult.Failure && result.error is PairingError.InvalidFingerprint)
+        }
     }
 
     @Test

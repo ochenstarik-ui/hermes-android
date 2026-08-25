@@ -18,6 +18,23 @@
     "expected_error": null
   },
   {
+    "name": "valid_v2_https_with_fingerprint",
+    "uri": "hermes://pair?data=eyJ2IjogMiwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICIxOTIuMTY4LjEuMTAiLCAicG9ydCI6IDgwODAsICJzY2hlbWUiOiAiaHR0cHMiLCAiZXhwaXJlc19hdCI6IDE4MTkxMjQ5MjYsICJub25jZSI6ICJBUUlEQkFVR0J3Z0pDZ3NNRFE0UEVBIiwgImZpbmdlcnByaW50IjogIkFBOkJCOkNDOkREOkVFOkZGOjAwOjExOjIyOjMzOjQ0OjU1OjY2Ojc3Ojg4Ojk5OkFBOkJCOkNDOkREOkVFOkZGOjAwOjExOjIyOjMzOjQ0OjU1OjY2Ojc3Ojg4Ojk5In0",
+    "expected_result": "success",
+    "expected_error": null
+  },
+  {
+    "name": "valid_v2_https_no_fingerprint",
+    "uri": "hermes://pair?data=eyJ2IjogMiwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICIxOTIuMTY4LjEuMTAiLCAicG9ydCI6IDgwODAsICJzY2hlbWUiOiAiaHR0cHMiLCAiZXhwaXJlc19hdCI6IDE4MTkxMjQ5MjYsICJub25jZSI6ICJBUUlEQkFVR0J3Z0pDZ3NNRFE0UEVBIn0",
+    "expected_result": "success",
+    "expected_error": null
+  },
+  {
+    "name": "invalid_v2_bad_fingerprint",
+    "uri": "hermes://pair?data=eyJ2IjogMiwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICIxOTIuMTY4LjEuMTAiLCAicG9ydCI6IDgwODAsICJzY2hlbWUiOiAiaHR0cHMiLCAiZXhwaXJlc19hdCI6IDE4MTkxMjQ5MjYsICJub25jZSI6ICJBUUlEQkFVR0J3Z0pDZ3NNRFE0UEVBIiwgImZpbmdlcnByaW50IjogImJhZF9mcF9ub3RfaGV4In0",
+    "expected_error": "invalid_fingerprint"
+  },
+  {
     "name": "expired_payload",
     "uri": "hermes://pair?data=eyJ2IjogMSwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICIxOTIuMTY4LjEuMTAiLCAicG9ydCI6IDgwODAsICJzY2hlbWUiOiAiaHR0cCIsICJleHBpcmVzX2F0IjogMTc4NzU4NzkyNiwgIm5vbmNlIjogIkFRSURCQVVHQndnSkNnc01EUTRQRUEifQ",
     "expected_error": "expired_payload"
@@ -54,7 +71,7 @@
   },
   {
     "name": "wrong_version",
-    "uri": "hermes://pair?data=eyJ2IjogMiwgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICIxOTIuMTY4LjEuMTAiLCAicG9ydCI6IDgwODAsICJzY2hlbWUiOiAiaHR0cCIsICJleHBpcmVzX2F0IjogMTgxOTEyNDkyNiwgIm5vbmNlIjogIkFRSURCQVVHQndnSkNnc01EUTRQRUEifQ",
+    "uri": "hermes://pair?data=eyJ2IjogMywgInR5cGUiOiAiaGVybWVzLXBhaXIiLCAiaG9zdF9pZCI6ICIxMjNlNDU2Ny1lODliLTEyZDMtYTQ1Ni00MjY2MTQxNzQwMDAiLCAibmFtZSI6ICJNeSBTZXJ2ZXIiLCAiaG9zdCI6ICIxOTIuMTY4LjEuMTAiLCAicG9ydCI6IDgwODAsICJzY2hlbWUiOiAiaHR0cCIsICJleHBpcmVzX2F0IjogMTgxOTEyNDkyNiwgIm5vbmNlIjogIkFRSURCQVVHQndnSkNnc01EUTRQRUEifQ",
     "expected_error": "wrong_version"
   },
   {

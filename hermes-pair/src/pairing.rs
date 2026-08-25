@@ -33,6 +33,7 @@ pub enum PairingError {
     InvalidPort(u16),
     InvalidScheme(String),
     InvalidNonce(String),
+    InvalidFingerprint(String),
     PayloadExpired { expires_at: u64, now: u64 },
     TtlExceedsMaximum { expires_at: u64, max_allowed: u64 },
     InvalidTtl { ttl: u64, min: u64, max: u64 },
@@ -75,6 +76,9 @@ impl fmt::Display for PairingError {
                 write!(f, "Invalid scheme '{}', expected 'http' or 'https'", s)
             }
             PairingError::InvalidNonce(msg) => write!(f, "Invalid nonce: {}", msg),
+            PairingError::InvalidFingerprint(msg) => {
+                write!(f, "Invalid certificate fingerprint: {}", msg)
+            }
             PairingError::PayloadExpired { expires_at, now } => {
                 write!(
                     f,
@@ -130,8 +134,8 @@ pub fn validate_ttl(ttl: u64) -> Result<(), PairingError> {
 }
 
 pub fn validate_payload(payload: &PairingPayloadV1, current_time: u64) -> Result<(), PairingError> {
-    // 1. Version must be 1
-    if payload.v != 1 {
+    // 1. Version must be 1 or 2
+    if payload.v != 1 && payload.v != 2 {
         return Err(PairingError::UnsupportedVersion(payload.v));
     }
 
@@ -140,6 +144,28 @@ pub fn validate_payload(payload: &PairingPayloadV1, current_time: u64) -> Result
         return Err(PairingError::InvalidPayloadType(
             payload.payload_type.clone(),
         ));
+    }
+
+    // Fingerprint validation (if present)
+    if let Some(ref fp) = payload.fingerprint {
+        let trimmed = fp.trim();
+        if trimmed.is_empty() {
+            return Err(PairingError::InvalidFingerprint(
+                "Fingerprint cannot be empty".into(),
+            ));
+        }
+        let clean = trimmed
+            .trim_start_matches("SHA256:")
+            .trim_start_matches("sha256:")
+            .trim_start_matches("SHA-256:")
+            .trim_start_matches("sha-256:")
+            .replace([':', ' ', '-'], "");
+        if clean.len() != 64 || !clean.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(PairingError::InvalidFingerprint(format!(
+                "Invalid certificate fingerprint '{}': expected 64 hex characters (SHA-256)",
+                fp
+            )));
+        }
     }
 
     // 3. Host ID must be a valid UUID (RFC 4122 standard, any version accepted)
@@ -264,6 +290,35 @@ pub fn create_pairing_payload(
         scheme,
         expires_at,
         nonce,
+        fingerprint: None,
+    }
+}
+
+pub fn create_pairing_payload_v2(
+    host_id: String,
+    name: String,
+    host: String,
+    port: u16,
+    scheme: String,
+    ttl_seconds: u64,
+    fingerprint: Option<String>,
+) -> PairingPayloadV1 {
+    let now = current_unix_timestamp();
+    let ttl = ttl_seconds.clamp(MIN_TTL_SECONDS, MAX_TTL_SECONDS);
+    let expires_at = now + ttl;
+    let nonce = generate_nonce();
+
+    PairingPayloadV1 {
+        v: 2,
+        payload_type: "hermes-pair".to_string(),
+        host_id,
+        name,
+        host,
+        port,
+        scheme,
+        expires_at,
+        nonce,
+        fingerprint,
     }
 }
 

@@ -78,11 +78,30 @@ object HermesPairingParser {
             return PairingResult.Failure(PairingError.JsonSyntaxError("Malformed JSON payload"))
         }
 
-        if (payload.v != 1) {
+        if (payload.v != 1 && payload.v != 2) {
             return PairingResult.Failure(PairingError.UnsupportedProtocolVersion(payload.v))
         }
         if (payload.type != "hermes-pair") {
             return PairingResult.Failure(PairingError.InvalidPayloadType(payload.type))
+        }
+
+        if (payload.fingerprint != null) {
+            val rawFp = payload.fingerprint.trim()
+            if (rawFp.isEmpty()) {
+                return PairingResult.Failure(PairingError.InvalidFingerprint("Certificate fingerprint cannot be empty"))
+            }
+            val cleanFp = rawFp
+                .removePrefix("SHA256:")
+                .removePrefix("sha256:")
+                .removePrefix("SHA-256:")
+                .removePrefix("sha-256:")
+                .replace(":", "")
+                .replace(" ", "")
+                .replace("-", "")
+
+            if (cleanFp.length != 64 || !cleanFp.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) {
+                return PairingResult.Failure(PairingError.InvalidFingerprint("Invalid certificate fingerprint: expected 64 hex characters (SHA-256)"))
+            }
         }
 
         try {

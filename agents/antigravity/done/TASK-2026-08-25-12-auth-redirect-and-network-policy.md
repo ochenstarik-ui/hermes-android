@@ -29,7 +29,7 @@
 
 - В хосте (Hermes Gateway) пока нет контракта (RPC) на явную отмену модальных окон типа Sudo/Secret/Clarify. Требуется добавить методы типа `respondSudoCancel(requestId)`, чтобы мобильный клиент мог явно сообщить хосту об отказе пользователя вводить данные.
 
-## Итоговая таблица 63 находок (Final Audit Reconciliation)
+## Сверка с анти-чеклистом (Anti-checklist Verification)
 
 - 1. `redirect_uri` in `authUrl` is `http://127.0.0.1:<port>/callback` and loopback is safe (проверено — чисто).
 - 2. Only ONE callback mechanism remains in the codebase (проверено — чисто).

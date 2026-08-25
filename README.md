@@ -151,11 +151,11 @@ Download prebuilt binaries and `SHA256SUMS.txt` from the latest [GitHub Releases
 
 #### Windows (GUI or CLI):
 ```powershell
-# Launch GUI window
+# Launch GUI window (defaults to HTTPS pairing with TLS pinning)
 .\hermes-pair-windows-x86_64.exe
 
-# Terminal QR output
-.\hermes-pair-windows-x86_64.exe qr --port 9119
+# Terminal QR output with pinned certificate fingerprint
+.\hermes-pair-windows-x86_64.exe qr --port 9119 --fingerprint "AA:BB:CC:DD:..."
 ```
 
 #### Linux (GUI or Headless Server):
@@ -165,11 +165,15 @@ chmod +x hermes-pair-linux-x86_64
 # Launch GUI window
 ./hermes-pair-linux-x86_64
 
-# Headless / Terminal QR
-./hermes-pair-linux-x86_64 --terminal --port 9119
+# Headless / Terminal QR with pinned certificate fingerprint
+./hermes-pair-linux-x86_64 --terminal --port 9119 --fingerprint "AA:BB:CC:DD:..."
 ```
 
-### 3. Building Hermes Pair from Source:
+### 3. Security Architecture: TLS Pinning & Strict Network Policy
+- **Strict Network Policy**: Android's `network_security_config.xml` enforces `cleartextTrafficPermitted="false"` across base configurations, preventing unencrypted transport of authentication tokens or user prompts.
+- **TLS Fingerprint Trust (`TlsFingerprintTrust`)**: During QR onboarding via [Pairing Protocol v2](docs/pairing-protocol-v2.md), the host passes its SHA-256 TLS certificate fingerprint. Hermes Android securely validates self-signed or enterprise TLS certificates without requiring device-wide root certificate installation or cleartext exceptions.
+
+### 4. Building Hermes Pair from Source:
 ```bash
 cd hermes-pair
 cargo test
@@ -179,4 +183,5 @@ cargo build --release
 The compiled binaries will be located at:
 - **Windows**: `hermes-pair/target/release/hermes-pair.exe`
 - **Linux**: `hermes-pair/target/release/hermes-pair`
+
 

@@ -13,6 +13,8 @@ pub struct PairingPayloadV1 {
     pub scheme: String,
     pub expires_at: u64,
     pub nonce: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

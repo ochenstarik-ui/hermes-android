@@ -29,6 +29,7 @@ fn test_canonical_cross_contract_fixture() {
         scheme: "http".to_string(),
         expires_at: 1800000000,
         nonce: TEST_NONCE_16.to_string(),
+        fingerprint: None,
     };
 
     let json_str = serde_json::to_string(&payload).expect("Serialization failed");
@@ -92,6 +93,7 @@ fn test_pairing_payload_serde() {
         scheme: "http".to_string(),
         expires_at: 1800000000,
         nonce: TEST_NONCE_16.to_string(),
+        fingerprint: None,
     };
 
     let json = serde_json::to_string(&payload).expect("Serialization failed");
@@ -158,6 +160,7 @@ fn test_expired_payload_rejection() {
         scheme: "http".to_string(),
         expires_at: 1000,
         nonce: TEST_NONCE_16.to_string(),
+        fingerprint: None,
     };
 
     let uri = encode_pairing_uri(&payload);
@@ -176,7 +179,7 @@ fn test_expired_payload_rejection() {
 fn test_invalid_version_rejection() {
     let host_id = Uuid::new_v4().to_string();
     let payload = PairingPayloadV1 {
-        v: 2,
+        v: 3,
         payload_type: "hermes-pair".to_string(),
         host_id,
         name: "Future-Node".to_string(),
@@ -185,6 +188,7 @@ fn test_invalid_version_rejection() {
         scheme: "http".to_string(),
         expires_at: 1100,
         nonce: TEST_NONCE_16.to_string(),
+        fingerprint: None,
     };
 
     let uri = encode_pairing_uri(&payload);
@@ -192,10 +196,63 @@ fn test_invalid_version_rejection() {
 
     match result {
         Err(PairingError::UnsupportedVersion(v)) => {
-            assert_eq!(v, 2);
+            assert_eq!(v, 3);
         }
         other => panic!("Expected UnsupportedVersion error, got {:?}", other),
     }
+}
+
+#[test]
+fn test_valid_v2_pairing_payload_with_fingerprint() {
+    let host_id = Uuid::new_v4().to_string();
+    let fp = "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99".to_string();
+    let payload = hermes_pair::pairing::create_pairing_payload_v2(
+        host_id.clone(),
+        "Secure-Node".to_string(),
+        "192.168.1.50".to_string(),
+        9119,
+        "https".to_string(),
+        300,
+        Some(fp.clone()),
+    );
+
+    assert_eq!(payload.v, 2);
+    assert_eq!(payload.scheme, "https");
+    assert_eq!(payload.fingerprint, Some(fp.clone()));
+
+    let uri = encode_pairing_uri(&payload);
+    let decoded = decode_pairing_uri(&uri).expect("Should decode valid v2 URI");
+    assert_eq!(decoded.v, 2);
+    assert_eq!(decoded.scheme, "https");
+    assert_eq!(decoded.fingerprint, Some(fp));
+}
+
+#[test]
+fn test_invalid_fingerprint_rejection() {
+    let host_id = Uuid::new_v4().to_string();
+    let mut payload = hermes_pair::pairing::create_pairing_payload_v2(
+        host_id,
+        "Node".to_string(),
+        "192.168.1.50".to_string(),
+        9119,
+        "https".to_string(),
+        300,
+        Some("not_a_valid_hex_fp".to_string()),
+    );
+
+    assert!(validate_payload(&payload, 1000).is_err());
+
+    payload.fingerprint = Some("".to_string());
+    assert!(validate_payload(&payload, 1000).is_err());
+
+    payload.fingerprint = Some("A".repeat(63));
+    assert!(validate_payload(&payload, 1000).is_err());
+
+    payload.fingerprint = Some("A".repeat(65));
+    assert!(validate_payload(&payload, 1000).is_err());
+
+    payload.fingerprint = Some("A".repeat(64));
+    assert!(validate_payload(&payload, 1000).is_ok());
 }
 
 #[test]
@@ -211,6 +268,7 @@ fn test_invalid_payload_type_rejection() {
         scheme: "http".to_string(),
         expires_at: 1100,
         nonce: TEST_NONCE_16.to_string(),
+        fingerprint: None,
     };
 
     let uri = encode_pairing_uri(&payload);
@@ -236,6 +294,7 @@ fn test_invalid_uuid_rejection() {
         scheme: "http".to_string(),
         expires_at: 1100,
         nonce: TEST_NONCE_16.to_string(),
+        fingerprint: None,
     };
 
     let uri = encode_pairing_uri(&payload);
@@ -262,6 +321,7 @@ fn test_blank_or_oversized_name_rejection() {
         scheme: "http".to_string(),
         expires_at: 1100,
         nonce: TEST_NONCE_16.to_string(),
+        fingerprint: None,
     };
     assert!(validate_payload(&payload, 1000).is_err());
 
@@ -293,6 +353,7 @@ fn test_malicious_host_rejection() {
         scheme: "http".to_string(),
         expires_at: 1100,
         nonce: TEST_NONCE_16.to_string(),
+        fingerprint: None,
     };
 
     let forbidden_hosts = vec![
@@ -332,6 +393,7 @@ fn test_invalid_port_rejection() {
         scheme: "http".to_string(),
         expires_at: 1100,
         nonce: TEST_NONCE_16.to_string(),
+        fingerprint: None,
     };
 
     let uri = encode_pairing_uri(&payload);
@@ -358,6 +420,7 @@ fn test_invalid_scheme_rejection() {
         scheme: "ftp".to_string(),
         expires_at: 1100,
         nonce: TEST_NONCE_16.to_string(),
+        fingerprint: None,
     };
 
     assert!(validate_payload(&payload, 1000).is_err());
@@ -385,6 +448,7 @@ fn test_nonce_validation() {
         scheme: "http".to_string(),
         expires_at: 1100,
         nonce: "".to_string(),
+        fingerprint: None,
     };
 
     // Empty nonce rejected
@@ -459,11 +523,11 @@ fn test_cli_parse_hermes_url_and_endpoint_resolution() {
     assert_eq!(p, 8888);
 
     let (s, p) = resolve_cli_endpoint(None, None).unwrap();
-    assert_eq!(s, "http");
+    assert_eq!(s, "https");
     assert_eq!(p, 9119);
 
     let (s, p) = resolve_cli_endpoint(None, Some(9555)).unwrap();
-    assert_eq!(s, "http");
+    assert_eq!(s, "https");
     assert_eq!(p, 9555);
 }
 

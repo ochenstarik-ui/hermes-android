@@ -42,6 +42,7 @@ fn error_to_code(err: &PairingError) -> &'static str {
         PairingError::InvalidPort(_) => "invalid_port_zero",
         PairingError::InvalidScheme(_) => "invalid_scheme",
         PairingError::InvalidNonce(_) => "invalid_nonce_length",
+        PairingError::InvalidFingerprint(_) => "invalid_fingerprint",
         PairingError::PayloadExpired { .. } => "expired_payload",
         PairingError::TtlExceedsMaximum { .. } => "ttl_exceeds_maximum",
         PairingError::InvalidName(_) => "invalid_name",

@@ -13,7 +13,8 @@ data class PairingPayloadV1(
     val port: Int,
     val scheme: String = "http",
     @SerialName("expires_at") val expiresAt: Long,
-    val nonce: String
+    val nonce: String,
+    @SerialName("fingerprint") val fingerprint: String? = null
 ) {
     val canonicalEndpoint: CanonicalEndpoint
         get() = CanonicalEndpoint(
@@ -92,6 +93,9 @@ sealed class PairingError(val code: String, val message: String) {
 
     data class InvalidNonce(val reason: String) :
         PairingError("invalid_nonce_length", reason)
+
+    data class InvalidFingerprint(val reason: String = "Invalid certificate fingerprint") :
+        PairingError("invalid_fingerprint", reason)
 
     data class ExpiredPayload(val expiresAt: Long) :
         PairingError("expired_payload", "Payload expired at $expiresAt")

@@ -4,7 +4,7 @@ use crate::identity::{get_display_name, get_host_id};
 use crate::models::{NetworkInterfaceInfo, PairingPayloadV1};
 use crate::network::{discover_network_interfaces, format_host_ip};
 use crate::pairing::{
-    create_pairing_payload, current_unix_timestamp, encode_pairing_uri, MAX_TTL_SECONDS,
+    create_pairing_payload_v2, current_unix_timestamp, encode_pairing_uri, MAX_TTL_SECONDS,
     MIN_TTL_SECONDS,
 };
 use crate::qr::render_egui_image;
@@ -26,6 +26,7 @@ pub struct HermesPairApp {
     scheme: String,
     port: u16,
     ttl: u64,
+    fingerprint: Option<String>,
     interfaces: Vec<NetworkInterfaceInfo>,
     selected_iface_index: usize,
 
@@ -42,6 +43,7 @@ pub struct HermesPairApp {
 }
 
 impl HermesPairApp {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         config: AppConfig,
@@ -50,6 +52,7 @@ impl HermesPairApp {
         port: u16,
         explicit_interface: Option<String>,
         ttl: u64,
+        fingerprint: Option<String>,
     ) -> Self {
         let ttl = ttl.clamp(MIN_TTL_SECONDS, MAX_TTL_SECONDS);
 
@@ -79,13 +82,14 @@ impl HermesPairApp {
         let host_id = get_host_id(&config);
         let display_name = get_display_name(&config);
 
-        let current_payload = create_pairing_payload(
+        let current_payload = create_pairing_payload_v2(
             host_id,
             display_name,
             format_host_ip(&host_ip),
             port,
             scheme.clone(),
             ttl,
+            fingerprint.clone(),
         );
         let current_uri = encode_pairing_uri(&current_payload);
         let qr_texture = Self::build_qr_texture(&cc.egui_ctx, &current_uri);
@@ -122,6 +126,7 @@ impl HermesPairApp {
             scheme,
             port,
             ttl,
+            fingerprint,
             interfaces,
             selected_iface_index,
             current_payload,
@@ -153,13 +158,14 @@ impl HermesPairApp {
         let host_id = get_host_id(&self.config);
         let display_name = get_display_name(&self.config);
 
-        self.current_payload = create_pairing_payload(
+        self.current_payload = create_pairing_payload_v2(
             host_id,
             display_name,
             format_host_ip(&host_ip),
             self.port,
             self.scheme.clone(),
             self.ttl,
+            self.fingerprint.clone(),
         );
         self.current_uri = encode_pairing_uri(&self.current_payload);
         self.qr_texture = Self::build_qr_texture(ctx, &self.current_uri);

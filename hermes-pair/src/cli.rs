@@ -3,7 +3,9 @@ use crate::hermes::{HermesProbeClient, ProbeState};
 use crate::identity::{get_display_name, get_host_id};
 use crate::models::NetworkInterfaceInfo;
 use crate::network::{discover_network_interfaces, format_host_ip};
-use crate::pairing::{create_pairing_payload, current_unix_timestamp, encode_pairing_uri, validate_ttl};
+use crate::pairing::{
+    create_pairing_payload_v2, current_unix_timestamp, encode_pairing_uri, validate_ttl,
+};
 use crate::qr::render_terminal_qr;
 use clap::{Args, Parser, Subcommand};
 use std::net::IpAddr;
@@ -51,6 +53,10 @@ pub struct CliArgs {
     #[arg(long = "reset-host-id")]
     pub reset_host_id: bool,
 
+    /// SHA-256 certificate fingerprint for TLS host pinning
+    #[arg(long = "fingerprint")]
+    pub fingerprint: Option<String>,
+
     #[command(subcommand)]
     pub command: Option<CliCommand>,
 }
@@ -86,6 +92,10 @@ pub struct QrArgs {
     /// Reset persistent host UUID to a fresh value
     #[arg(long = "reset-host-id")]
     pub reset_host_id: bool,
+
+    /// SHA-256 certificate fingerprint for TLS host pinning
+    #[arg(long = "fingerprint")]
+    pub fingerprint: Option<String>,
 }
 
 /// Parses a Hermes URL into its scheme, host, and port components.
@@ -120,7 +130,7 @@ pub fn resolve_cli_endpoint(
         Ok((parsed_scheme, final_port))
     } else {
         let final_port = explicit_port.unwrap_or(9119);
-        Ok(("http".to_string(), final_port))
+        Ok(("https".to_string(), final_port))
     }
 }
 
@@ -159,6 +169,7 @@ pub async fn run_once(
     port: u16,
     explicit_interface: Option<&str>,
     ttl: u64,
+    fingerprint: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     validate_ttl(ttl)?;
 
@@ -181,13 +192,14 @@ pub async fn run_once(
             };
             println!("Hermes: Running (v{}, Auth: {})", ver, auth);
 
-            let payload = create_pairing_payload(
+            let payload = create_pairing_payload_v2(
                 host_id.clone(),
                 display_name.clone(),
                 format_host_ip(&host_ip),
                 port,
                 scheme.to_string(),
                 ttl,
+                fingerprint,
             );
 
             let uri = encode_pairing_uri(&payload);
@@ -240,6 +252,7 @@ pub async fn run_terminal_loop(
     port: u16,
     explicit_interface: Option<&str>,
     ttl: u64,
+    fingerprint: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     validate_ttl(ttl)?;
 
@@ -250,13 +263,14 @@ pub async fn run_terminal_loop(
     let interfaces = discover_network_interfaces().unwrap_or_default();
     let (_iface_name, mut current_host_ip) = resolve_selected_ip(explicit_interface, &interfaces);
 
-    let mut payload = create_pairing_payload(
+    let mut payload = create_pairing_payload_v2(
         host_id.clone(),
         display_name.clone(),
         format_host_ip(&current_host_ip),
         port,
         scheme.to_string(),
         ttl,
+        fingerprint.clone(),
     );
     let mut uri = encode_pairing_uri(&payload);
     let mut qr_rendered = render_terminal_qr(&uri).unwrap_or_default();
@@ -268,13 +282,14 @@ pub async fn run_terminal_loop(
 
         if now_ts >= payload.expires_at || new_host_ip != current_host_ip {
             current_host_ip = new_host_ip;
-            payload = create_pairing_payload(
+            payload = create_pairing_payload_v2(
                 host_id.clone(),
                 display_name.clone(),
                 format_host_ip(&current_host_ip),
                 port,
                 scheme.to_string(),
                 ttl,
+                fingerprint.clone(),
             );
             uri = encode_pairing_uri(&payload);
             qr_rendered = render_terminal_qr(&uri).unwrap_or_default();

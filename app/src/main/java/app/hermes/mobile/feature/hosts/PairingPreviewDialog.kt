@@ -36,7 +36,7 @@ fun PairingPreviewDialog(
     var probeState by remember { mutableStateOf<PairingProbeState>(PairingProbeState.Probing) }
     var allowCleartext by remember { mutableStateOf(payload.scheme == "http") }
     val coroutineScope = rememberCoroutineScope()
-    val restClient = remember { HermesRestClient() }
+    val restClient = remember(payload.fingerprint) { HermesRestClient.forHost(payload.fingerprint) }
 
     fun doProbe() {
         probeState = PairingProbeState.Probing

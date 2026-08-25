@@ -185,7 +185,12 @@ class HostsViewModel(
     fun startSignIn(context: Context, host: HermesHost, onCompleted: (() -> Unit)? = null) {
         _uiState.value = _uiState.value.copy(isAuthenticating = true, authError = null)
         viewModelScope.launch {
-            val result = pkceAuthManager.startAuthFlow(
+            val authManager = if (!host.certificateFingerprint.isNullOrBlank()) {
+                PkceLoopbackAuthManager(HermesRestClient.forHost(host.certificateFingerprint), tokenVault)
+            } else {
+                pkceAuthManager
+            }
+            val result = authManager.startAuthFlow(
                 context = context,
                 connectionId = host.id.value,
                 baseUrl = host.baseUrl,
@@ -277,7 +282,8 @@ class HostsViewModel(
                     allowCleartext = allowCleartext,
                     enabled = existingHost.enabled,
                     lastSeenAt = existingHost.lastSeenAt,
-                    lastKnownStatus = HostStatus.fromStringOrOffline(existingHost.lastKnownStatus)
+                    lastKnownStatus = HostStatus.fromStringOrOffline(existingHost.lastKnownStatus),
+                    certificateFingerprint = payload.fingerprint
                 )
                 connectionManager.updateHost(updatedHost)
                 updatedHost
@@ -289,7 +295,8 @@ class HostsViewModel(
                     allowCleartext = allowCleartext,
                     enabled = true,
                     lastSeenAt = System.currentTimeMillis(),
-                    lastKnownStatus = HostStatus.OFFLINE
+                    lastKnownStatus = HostStatus.OFFLINE,
+                    certificateFingerprint = payload.fingerprint
                 )
                 connectionManager.addHost(newHost)
                 newHost
