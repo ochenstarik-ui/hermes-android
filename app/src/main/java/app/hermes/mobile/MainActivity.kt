@@ -103,7 +103,6 @@ class MainActivity : ComponentActivity() {
             MigrationHelper.migrateLegacyConnections(applicationContext, hostDao)
         }
 
-        handleAuthIntent(intent)
 
         setContent {
             HermesAndroidTheme {
@@ -117,20 +116,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        handleAuthIntent(intent)
-    }
 
-    private fun handleAuthIntent(intent: Intent?) {
-        val uri = intent?.data ?: return
-        if (uri.scheme == "hermes" && uri.host == "auth-callback") {
-            lifecycleScope.launch {
-                val container = (applicationContext as HermesApplication).container
-                container.pkceAuthManager.handleAuthCallbackUri(uri)
-            }
-        }
-    }
 }
 
 @Composable

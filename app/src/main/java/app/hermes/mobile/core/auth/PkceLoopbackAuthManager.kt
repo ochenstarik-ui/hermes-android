@@ -8,6 +8,9 @@ import app.hermes.mobile.core.model.NativeAuthTokens
 import app.hermes.mobile.core.network.HermesRestClient
 import app.hermes.mobile.core.security.TokenVault
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -59,6 +62,12 @@ class PkceLoopbackAuthManager(
             val port = serverSocket.localPort
             serverSocket.soTimeout = 180_000 // 3 minutes timeout
 
+            currentCoroutineContext().job.invokeOnCompletion {
+                try {
+                    serverSocket?.close()
+                } catch (_: Throwable) {}
+            }
+
             val redirectUri = "http://127.0.0.1:$port/callback"
 
             val encodedRedirect = URLEncoder.encode(redirectUri, StandardCharsets.UTF_8.name())
@@ -80,18 +89,22 @@ class PkceLoopbackAuthManager(
             }
 
             var authCode: String? = null
-            while (authCode == null) {
-                val socket: Socket = serverSocket.accept()
+            var retries = 0
+            val MAX_RETRIES = 5
+            while (authCode == null && retries < MAX_RETRIES) {
+                val socket: Socket = runInterruptible(Dispatchers.IO) { serverSocket!!.accept() }
                 try {
                     authCode = handleCallbackSocket(socket, state)
                 } catch (e: Exception) {
-                    if (e is SecurityException && e.message?.contains("PKCE State mismatch") == true) {
-                        // Resilient loopback: don't abort entire auth on unrelated rogue connection with bad state, wait for valid redirect
-                        continue
-                    } else {
+                    retries++
+                    if (retries >= MAX_RETRIES) {
                         throw e
                     }
+                    continue
                 }
+            }
+            if (authCode == null) {
+                throw IllegalStateException("Failed to get auth code after $MAX_RETRIES retries")
             }
 
             val exchangeResult = restClient.exchangeNativeToken(
@@ -119,47 +132,7 @@ class PkceLoopbackAuthManager(
         }
     }
 
-    suspend fun handleAuthCallbackUri(uri: Uri): Result<NativeAuthTokens> = withContext(Dispatchers.IO) {
-        try {
-            val state = uri.getQueryParameter("state")
-            val code = uri.getQueryParameter("code")
-            val error = uri.getQueryParameter("error")
 
-            if (!error.isNullOrEmpty()) {
-                return@withContext Result.failure(IllegalStateException("Server returned authorization error: $error"))
-            }
-
-            if (state.isNullOrEmpty()) {
-                return@withContext Result.failure(SecurityException("Missing state parameter in callback URI"))
-            }
-
-            val pendingState = stateStore?.getPendingState(state)
-                ?: return@withContext Result.failure(SecurityException("PKCE State mismatch! Possible CSRF attempt or expired state."))
-
-            if (code.isNullOrEmpty()) {
-                return@withContext Result.failure(IllegalStateException("Missing authorization code in callback URI"))
-            }
-
-            val exchangeResult = restClient.exchangeNativeToken(
-                baseUrl = pendingState.baseUrl,
-                code = code,
-                codeVerifier = pendingState.codeVerifier,
-                allowCleartext = pendingState.allowCleartext
-            )
-
-            stateStore.clearPendingState(state)
-
-            if (exchangeResult.isSuccess) {
-                val tokens = exchangeResult.getOrThrow()
-                tokenVault.saveTokens(pendingState.hostId, tokens)
-                Result.success(tokens)
-            } else {
-                Result.failure(exchangeResult.exceptionOrNull() ?: Exception("Token exchange failed"))
-            }
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
 
     private fun handleCallbackSocket(socket: Socket, expectedState: String): String {
         socket.use { s ->

@@ -560,18 +560,11 @@ class UnifiedSessionRepository(
         promptType: ClarifyType = ClarifyType.CLARIFY,
         questionId: String? = null
     ): Boolean {
-        val runtime = connectionManager.getRuntime(hostId)
-        val success = try {
-            when (promptType) {
-                ClarifyType.CLARIFY -> runtime?.gatewayClient?.respondClarify(requestId, "", questionId) ?: false
-                ClarifyType.SUDO -> runtime?.gatewayClient?.respondSudo(requestId, "") ?: false
-                ClarifyType.SECRET -> runtime?.gatewayClient?.respondSecret(requestId, "") ?: false
-            }
-        } catch (_: Exception) {
-            false
-        }
+        // Do NOT send empty strings or bogus passwords/secrets across JSON-RPC.
+        // The host contract does not currently support an explicit cancel RPC for modal requests.
+        // Dismiss the clarify modal locally by removing it from active state and queues.
         removeClarifyFromQueues(hostId, requestId)
-        return success
+        return true
     }
 
     private fun removeClarifyFromQueues(hostId: HermesHostId, requestId: String) {
