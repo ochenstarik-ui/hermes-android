@@ -6,8 +6,14 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.hermes.mobile.HermesApplication
 import app.hermes.mobile.MainActivity
+import app.hermes.mobile.core.model.HermesHost
+import app.hermes.mobile.core.model.HermesHostId
+import kotlinx.coroutines.runBlocking
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -17,6 +23,20 @@ class ChatViewModelScopeTest {
 
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
+
+    @Before
+    fun setup() {
+        val app = ApplicationProvider.getApplicationContext<HermesApplication>()
+        runBlocking {
+            app.container.connectionManager.addHost(
+                HermesHost(
+                    id = HermesHostId("test-host-id"),
+                    displayName = "Test Host",
+                    baseUrl = "http://127.0.0.1:9119"
+                )
+            )
+        }
+    }
 
     @Test
     fun testChatStateSurvivesRecreation() {
