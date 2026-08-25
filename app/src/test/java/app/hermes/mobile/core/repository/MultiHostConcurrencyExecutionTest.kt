@@ -447,15 +447,19 @@ class MultiHostConcurrencyExecutionTest {
                     path.startsWith("/api/ws") || path.startsWith("/ws") -> {
                         MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                             override fun onOpen(webSocket: WebSocket, response: Response) {
-                                webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
+                                try {
+                                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
+                                } catch (_: Exception) {}
                             }
 
                             override fun onMessage(webSocket: WebSocket, text: String) {
-                                if (text.contains("session.resume")) {
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a1","result":{"stored_session_id":"durable_persisted_99","session_id":"fresh_runtime_101"}}""")
-                                } else if (text.contains("prompt.submit")) {
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a2","result":{"turn_id":"t_101"}}""")
-                                }
+                                try {
+                                    if (text.contains("session.resume")) {
+                                        webSocket.send("""{"jsonrpc":"2.0","id":"a1","result":{"stored_session_id":"durable_persisted_99","session_id":"fresh_runtime_101"}}""")
+                                    } else if (text.contains("prompt.submit")) {
+                                        webSocket.send("""{"jsonrpc":"2.0","id":"a2","result":{"turn_id":"t_101"}}""")
+                                    }
+                                } catch (_: Exception) {}
                             }
                         })
                     }
@@ -510,18 +514,20 @@ class MultiHostConcurrencyExecutionTest {
         runtime!!.connect()
         runtime.gatewayClient.awaitGatewayReady(5000)
 
-        val turnId = freshRepo.sendPrompt(sessionId, "Hello after restart")
-        assertEquals("t_101", turnId)
+        try {
+            val turnId = freshRepo.sendPrompt(sessionId, "Hello after restart")
+            assertEquals("t_101", turnId)
 
-        // Verify that binding was updated in DB with the fresh runtime ID
-        val updatedBinding = testSessionDao.getBindingsForSession(sessionId.value).find { it.hostId == host1Id.value }
-        assertNotNull(updatedBinding)
-        assertEquals("durable_persisted_99", updatedBinding?.durableSessionId)
-        assertEquals("fresh_runtime_101", updatedBinding?.runtimeSessionId)
-        assertEquals(BindingState.RUNNING.name, updatedBinding?.state)
-
-        runtime.disconnect()
-        server.shutdown()
+            // Verify that binding was updated in DB with the fresh runtime ID
+            val updatedBinding = testSessionDao.getBindingsForSession(sessionId.value).find { it.hostId == host1Id.value }
+            assertNotNull(updatedBinding)
+            assertEquals("durable_persisted_99", updatedBinding?.durableSessionId)
+            assertEquals("fresh_runtime_101", updatedBinding?.runtimeSessionId)
+            assertEquals(BindingState.RUNNING.name, updatedBinding?.state)
+        } finally {
+            try { runtime.disconnect() } catch (_: Exception) {}
+            try { server.shutdown() } catch (_: Exception) {}
+        }
     }
 
     @Test
@@ -540,19 +546,23 @@ class MultiHostConcurrencyExecutionTest {
                     path.startsWith("/api/ws") || path.startsWith("/ws") -> {
                         MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                             override fun onOpen(webSocket: WebSocket, response: Response) {
-                                webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
+                                try {
+                                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
+                                } catch (_: Exception) {}
                             }
 
                             override fun onMessage(webSocket: WebSocket, text: String) {
-                                if (text.contains("session.resume")) {
-                                    sessionResumeCalled = true
-                                    if (text.contains("valid_durable_888")) {
-                                        resumedDurableId = "valid_durable_888"
+                                try {
+                                    if (text.contains("session.resume")) {
+                                        sessionResumeCalled = true
+                                        if (text.contains("valid_durable_888")) {
+                                            resumedDurableId = "valid_durable_888"
+                                        }
+                                        webSocket.send("""{"jsonrpc":"2.0","id":"a1","result":{"stored_session_id":"valid_durable_888","session_id":"fresh_runtime_777"}}""")
+                                    } else if (text.contains("prompt.submit")) {
+                                        webSocket.send("""{"jsonrpc":"2.0","id":"a2","result":{"turn_id":"turn_ready_restart"}}""")
                                     }
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a1","result":{"stored_session_id":"valid_durable_888","session_id":"fresh_runtime_777"}}""")
-                                } else if (text.contains("prompt.submit")) {
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a2","result":{"turn_id":"turn_ready_restart"}}""")
-                                }
+                                } catch (_: Exception) {}
                             }
                         })
                     }
@@ -607,20 +617,22 @@ class MultiHostConcurrencyExecutionTest {
         runtime.connect()
         runtime.gatewayClient.awaitGatewayReady(5000)
 
-        // Calling sendPrompt must trigger session.resume since in-memory attachment does not exist in new process
-        val turnId = freshRepo.sendPrompt(sessionId, "Hello after clean restart")
-        assertEquals("turn_ready_restart", turnId)
+        try {
+            // Calling sendPrompt must trigger session.resume since in-memory attachment does not exist in new process
+            val turnId = freshRepo.sendPrompt(sessionId, "Hello after clean restart")
+            assertEquals("turn_ready_restart", turnId)
 
-        assertTrue("session.resume MUST be called even if persisted state was READY", sessionResumeCalled)
-        assertEquals("valid_durable_888", resumedDurableId)
+            assertTrue("session.resume MUST be called even if persisted state was READY", sessionResumeCalled)
+            assertEquals("valid_durable_888", resumedDurableId)
 
-        val updatedBinding = testSessionDao.getBindingsForSession(sessionId.value).find { it.hostId == host1Id.value }
-        assertNotNull(updatedBinding)
-        assertEquals("valid_durable_888", updatedBinding?.durableSessionId)
-        assertEquals("fresh_runtime_777", updatedBinding?.runtimeSessionId)
-
-        runtime.disconnect()
-        server.shutdown()
+            val updatedBinding = testSessionDao.getBindingsForSession(sessionId.value).find { it.hostId == host1Id.value }
+            assertNotNull(updatedBinding)
+            assertEquals("valid_durable_888", updatedBinding?.durableSessionId)
+            assertEquals("fresh_runtime_777", updatedBinding?.runtimeSessionId)
+        } finally {
+            try { runtime.disconnect() } catch (_: Exception) {}
+            try { server.shutdown() } catch (_: Exception) {}
+        }
     }
 
     @Test
@@ -638,16 +650,20 @@ class MultiHostConcurrencyExecutionTest {
                     path.startsWith("/api/ws") || path.startsWith("/ws") -> {
                         MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                             override fun onOpen(webSocket: WebSocket, response: Response) {
-                                webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
+                                try {
+                                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
+                                } catch (_: Exception) {}
                             }
 
                             override fun onMessage(webSocket: WebSocket, text: String) {
-                                if (text.contains("session.create")) {
-                                    sessionCreated = true
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a1","result":{"stored_session_id":"dur_conn_1","session_id":"rt_initial"}}""")
-                                } else if (text.contains("session.resume")) {
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a2","result":{"stored_session_id":"dur_conn_1","session_id":"rt_after_reconnect"}}""")
-                                }
+                                try {
+                                    if (text.contains("session.create")) {
+                                        sessionCreated = true
+                                        webSocket.send("""{"jsonrpc":"2.0","id":"a1","result":{"stored_session_id":"dur_conn_1","session_id":"rt_initial"}}""")
+                                    } else if (text.contains("session.resume")) {
+                                        webSocket.send("""{"jsonrpc":"2.0","id":"a2","result":{"stored_session_id":"dur_conn_1","session_id":"rt_after_reconnect"}}""")
+                                    }
+                                } catch (_: Exception) {}
                             }
                         })
                     }
@@ -680,27 +696,29 @@ class MultiHostConcurrencyExecutionTest {
         val session = testRepo.createUnifiedSession(title = "Reconnect Test", initialHostId = HermesHostId("host-windows"))
         val runtime = testConnectionManager.getRuntime(HermesHostId("host-windows"))!!
 
-        // Initial connect
-        runtime.connect()
-        runtime.gatewayClient.awaitGatewayReady(5000)
+        try {
+            // Initial connect
+            runtime.connect()
+            runtime.gatewayClient.awaitGatewayReady(5000)
 
-        val binding1 = testRepo.ensureAttachedRuntimeSession(session.id, host1Id, runtime)
-        assertEquals(RuntimeSessionId("rt_initial"), binding1.runtimeSessionId)
+            val binding1 = testRepo.ensureAttachedRuntimeSession(session.id, host1Id, runtime)
+            assertEquals(RuntimeSessionId("rt_initial"), binding1.runtimeSessionId)
 
-        // Disconnect host runtime
-        runtime.disconnect()
-        testSessionDao.updateBindingState(session.id.value, host1Id.value, BindingState.OFFLINE.name)
+            // Disconnect host runtime
+            runtime.disconnect()
+            testSessionDao.updateBindingState(session.id.value, host1Id.value, BindingState.OFFLINE.name)
 
-        // Reconnect host runtime
-        runtime.connect()
-        runtime.gatewayClient.awaitGatewayReady(5000)
+            // Reconnect host runtime
+            runtime.connect()
+            runtime.gatewayClient.awaitGatewayReady(5000)
 
-        // Reattach after reconnect
-        val binding2 = testRepo.ensureAttachedRuntimeSession(session.id, host1Id, runtime)
-        assertEquals(RuntimeSessionId("rt_after_reconnect"), binding2.runtimeSessionId)
-
-        runtime.disconnect()
-        server.shutdown()
+            // Reattach after reconnect
+            val binding2 = testRepo.ensureAttachedRuntimeSession(session.id, host1Id, runtime)
+            assertEquals(RuntimeSessionId("rt_after_reconnect"), binding2.runtimeSessionId)
+        } finally {
+            try { runtime.disconnect() } catch (_: Exception) {}
+            try { server.shutdown() } catch (_: Exception) {}
+        }
     }
 
     @Test
@@ -717,16 +735,20 @@ class MultiHostConcurrencyExecutionTest {
                     path.startsWith("/api/ws") || path.startsWith("/ws") -> {
                         MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                             override fun onOpen(webSocket: WebSocket, response: Response) {
-                                webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
+                                try {
+                                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
+                                } catch (_: Exception) {}
                             }
 
                             override fun onMessage(webSocket: WebSocket, text: String) {
-                                if (text.contains("session.resume")) {
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a1","result":{"stored_session_id":"dur_fail_test","session_id":"rt_fail_test"}}""")
-                                } else if (text.contains("prompt.submit")) {
-                                    // Fail prompt submission with an RPC error
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a2","error":{"code":-32000,"message":"Model overloaded"}}""")
-                                }
+                                try {
+                                    if (text.contains("session.resume")) {
+                                        webSocket.send("""{"jsonrpc":"2.0","id":"a1","result":{"stored_session_id":"dur_fail_test","session_id":"rt_fail_test"}}""")
+                                    } else if (text.contains("prompt.submit")) {
+                                        // Fail prompt submission with an RPC error
+                                        webSocket.send("""{"jsonrpc":"2.0","id":"a2","error":{"code":-32000,"message":"Model overloaded"}}""")
+                                    }
+                                } catch (_: Exception) {}
                             }
                         })
                     }
@@ -775,23 +797,25 @@ class MultiHostConcurrencyExecutionTest {
         runtime.connect()
         runtime.gatewayClient.awaitGatewayReady(5000)
 
-        // Attempt sendPrompt which will fail at submitPrompt
-        var threw = false
         try {
-            testRepo.sendPrompt(session.id, "Will fail")
-        } catch (_: Exception) {
-            threw = true
+            // Attempt sendPrompt which will fail at submitPrompt
+            var threw = false
+            try {
+                testRepo.sendPrompt(session.id, "Will fail")
+            } catch (_: Exception) {
+                threw = true
+            }
+
+            assertTrue("Expected prompt submission to throw", threw)
+
+            // Verify syncedThroughMessageId did NOT advance and remains "msg_baseline"
+            val binding = testSessionDao.getBindingsForSession(session.id.value).find { it.hostId == host1Id.value }
+            assertEquals("msg_baseline", binding?.syncedThroughMessageId)
+            assertEquals(BindingState.ERROR.name, binding?.state)
+        } finally {
+            try { runtime.disconnect() } catch (_: Exception) {}
+            try { server.shutdown() } catch (_: Exception) {}
         }
-
-        assertTrue("Expected prompt submission to throw", threw)
-
-        // Verify syncedThroughMessageId did NOT advance and remains "msg_baseline"
-        val binding = testSessionDao.getBindingsForSession(session.id.value).find { it.hostId == host1Id.value }
-        assertEquals("msg_baseline", binding?.syncedThroughMessageId)
-        assertEquals(BindingState.ERROR.name, binding?.state)
-
-        runtime.disconnect()
-        server.shutdown()
     }
 
     @Test
@@ -809,17 +833,21 @@ class MultiHostConcurrencyExecutionTest {
                     path.startsWith("/api/ws") || path.startsWith("/ws") -> {
                         MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                             override fun onOpen(webSocket: WebSocket, response: Response) {
-                                webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
+                                try {
+                                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
+                                } catch (_: Exception) {}
                             }
 
                             override fun onMessage(webSocket: WebSocket, text: String) {
-                                if (text.contains("session.resume")) {
-                                    // Transient failure: 500 / -32000 Server overloaded
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a1","error":{"code":-32000,"message":"Transient server error"}}""")
-                                } else if (text.contains("session.create")) {
-                                    createCalled = true
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a2","result":{"stored_session_id":"dur_forbidden","session_id":"rt_forbidden"}}""")
-                                }
+                                try {
+                                    if (text.contains("session.resume")) {
+                                        // Transient failure: 500 / -32000 Server overloaded
+                                        webSocket.send("""{"jsonrpc":"2.0","id":"a1","error":{"code":-32000,"message":"Transient server error"}}""")
+                                    } else if (text.contains("session.create")) {
+                                        createCalled = true
+                                        webSocket.send("""{"jsonrpc":"2.0","id":"a2","result":{"stored_session_id":"dur_forbidden","session_id":"rt_forbidden"}}""")
+                                    }
+                                } catch (_: Exception) {}
                             }
                         })
                     }
@@ -872,22 +900,24 @@ class MultiHostConcurrencyExecutionTest {
         runtime.connect()
         runtime.gatewayClient.awaitGatewayReady(5000)
 
-        var threw = false
         try {
-            testRepo.ensureAttachedRuntimeSession(sessionId, host1Id, runtime)
-        } catch (_: Exception) {
-            threw = true
+            var threw = false
+            try {
+                testRepo.ensureAttachedRuntimeSession(sessionId, host1Id, runtime)
+            } catch (_: Exception) {
+                threw = true
+            }
+
+            assertTrue("Expected transient resume error to throw", threw)
+            assertFalse("session.create MUST NOT be called on transient resume error", createCalled)
+
+            // Verify binding was not destroyed
+            val binding = testSessionDao.getBindingsForSession(sessionId.value).find { it.hostId == host1Id.value }
+            assertEquals("dur_preserved_123", binding?.durableSessionId)
+        } finally {
+            try { runtime.disconnect() } catch (_: Exception) {}
+            try { server.shutdown() } catch (_: Exception) {}
         }
-
-        assertTrue("Expected transient resume error to throw", threw)
-        assertFalse("session.create MUST NOT be called on transient resume error", createCalled)
-
-        // Verify binding was not destroyed
-        val binding = testSessionDao.getBindingsForSession(sessionId.value).find { it.hostId == host1Id.value }
-        assertEquals("dur_preserved_123", binding?.durableSessionId)
-
-        runtime.disconnect()
-        server.shutdown()
     }
 
     @Test
@@ -905,17 +935,21 @@ class MultiHostConcurrencyExecutionTest {
                     path.startsWith("/api/ws") || path.startsWith("/ws") -> {
                         MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                             override fun onOpen(webSocket: WebSocket, response: Response) {
-                                webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
+                                try {
+                                    webSocket.send("""{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"version":"1.0.0"}}}""")
+                                } catch (_: Exception) {}
                             }
 
                             override fun onMessage(webSocket: WebSocket, text: String) {
-                                if (text.contains("session.resume")) {
-                                    // Definitively unrecoverable: 404 Session not found
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a1","error":{"code":404,"message":"Session not found"}}""")
-                                } else if (text.contains("session.create")) {
-                                    createCalled = true
-                                    webSocket.send("""{"jsonrpc":"2.0","id":"a2","result":{"stored_session_id":"dur_new_fresh_999","session_id":"rt_new_fresh_999"}}""")
-                                }
+                                try {
+                                    if (text.contains("session.resume")) {
+                                        // Definitively unrecoverable: 404 Session not found
+                                        webSocket.send("""{"jsonrpc":"2.0","id":"a1","error":{"code":404,"message":"Session not found"}}""")
+                                    } else if (text.contains("session.create")) {
+                                        createCalled = true
+                                        webSocket.send("""{"jsonrpc":"2.0","id":"a2","result":{"stored_session_id":"dur_new_fresh_999","session_id":"rt_new_fresh_999"}}""")
+                                    }
+                                } catch (_: Exception) {}
                             }
                         })
                     }
@@ -968,19 +1002,21 @@ class MultiHostConcurrencyExecutionTest {
         runtime.connect()
         runtime.gatewayClient.awaitGatewayReady(5000)
 
-        val attachedBinding = testRepo.ensureAttachedRuntimeSession(sessionId, host1Id, runtime)
+        try {
+            val attachedBinding = testRepo.ensureAttachedRuntimeSession(sessionId, host1Id, runtime)
 
-        assertTrue("session.create MUST be called on unrecoverable 404 resume error", createCalled)
-        assertEquals(DurableSessionId("dur_new_fresh_999"), attachedBinding.durableSessionId)
-        assertEquals(RuntimeSessionId("rt_new_fresh_999"), attachedBinding.runtimeSessionId)
+            assertTrue("session.create MUST be called on unrecoverable 404 resume error", createCalled)
+            assertEquals(DurableSessionId("dur_new_fresh_999"), attachedBinding.durableSessionId)
+            assertEquals(RuntimeSessionId("rt_new_fresh_999"), attachedBinding.runtimeSessionId)
 
-        // Verify Room DB binding was updated
-        val binding = testSessionDao.getBindingsForSession(sessionId.value).find { it.hostId == host1Id.value }
-        assertEquals("dur_new_fresh_999", binding?.durableSessionId)
-        assertEquals("rt_new_fresh_999", binding?.runtimeSessionId)
-
-        runtime.disconnect()
-        server.shutdown()
+            // Verify Room DB binding was updated
+            val binding = testSessionDao.getBindingsForSession(sessionId.value).find { it.hostId == host1Id.value }
+            assertEquals("dur_new_fresh_999", binding?.durableSessionId)
+            assertEquals("rt_new_fresh_999", binding?.runtimeSessionId)
+        } finally {
+            try { runtime.disconnect() } catch (_: Exception) {}
+            try { server.shutdown() } catch (_: Exception) {}
+        }
     }
 
     @Test

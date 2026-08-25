@@ -72,8 +72,9 @@ class ReadyDeferredRaceTest {
         // 1. Connect to Server 1
         client.connect(wsUrl1, allowCleartext = true)
 
-        // 2. Start waiting for gateway.ready in background
+        val awaiterStarted = CompletableDeferred<Unit>()
         val awaiter = async {
+            awaiterStarted.complete(Unit)
             try {
                 client.awaitGatewayReady(4000)
                 true
@@ -82,8 +83,7 @@ class ReadyDeferredRaceTest {
             }
         }
 
-        // Give a brief moment for awaiter to capture deferred
-        delay(50)
+        awaiterStarted.await()
 
         // 3. Immediately re-invoke connect to Server 2 before Server 1 completes
         client.connect(wsUrl2, allowCleartext = true)

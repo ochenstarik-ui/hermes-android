@@ -187,13 +187,13 @@ pub fn validate_payload(payload: &PairingPayloadV1, current_time: u64) -> Result
             payload.host
         )));
     }
-    if !trimmed_host.starts_with('[') || !trimmed_host.ends_with(']') {
-        if trimmed_host.contains(':') {
-            return Err(PairingError::InvalidHost(format!(
-                "Host '{}' contains forbidden colon delimiter outside IPv6 brackets",
-                payload.host
-            )));
-        }
+    if (!trimmed_host.starts_with('[') || !trimmed_host.ends_with(']'))
+        && trimmed_host.contains(':')
+    {
+        return Err(PairingError::InvalidHost(format!(
+            "Host '{}' contains forbidden colon delimiter outside IPv6 brackets",
+            payload.host
+        )));
     }
 
     // 6. Port: 1..=65535 (u16 is <= 65535, port 0 is invalid)

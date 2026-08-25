@@ -9,12 +9,12 @@ import app.hermes.mobile.core.storage.FakeHostDao
 import app.hermes.mobile.core.storage.FakeUnifiedSessionDao
 import app.hermes.mobile.core.storage.HostBindingEntity
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -27,6 +27,7 @@ import java.util.concurrent.ConcurrentHashMap
  * does not leak memory in repository caches (sessionMessagesState, hostExecutingState,
  * sessionExecutingState, sessionHostMutexes, toolIdToMessageId).
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class CacheEvictionTest {
 
     @Suppress("UNCHECKED_CAST")
@@ -42,21 +43,22 @@ class CacheEvictionTest {
     }
 
     @Test
-    fun test50SessionsCycleEvictsAndBoundsMemoryCaches() = runBlocking {
+    fun test50SessionsCycleEvictsAndBoundsMemoryCaches() = runTest {
+        val testDispatcher = StandardTestDispatcher(testScheduler)
         val hostId = HermesHostId("host-cache-1")
         val host = HermesHost(id = hostId, displayName = "Cache Host", baseUrl = "http://cache-host:9119")
 
         val hostDao = FakeHostDao()
         val sessionDao = FakeUnifiedSessionDao()
         val tokenVault = InMemoryTokenVault()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = CoroutineScope(SupervisorJob() + testDispatcher)
 
         val connectionManager = HermesConnectionManager(
             hostDao = hostDao,
             tokenVault = tokenVault,
             scope = scope,
             runtimeFactory = { parentScope, h ->
-                val childScope = CoroutineScope(SupervisorJob(parentScope.coroutineContext[Job]) + Dispatchers.Default)
+                val childScope = CoroutineScope(SupervisorJob(parentScope.coroutineContext[Job]) + testDispatcher)
                 HermesHostRuntime(
                     initialHost = h,
                     gatewayClient = JsonRpcGatewayClient(scope = childScope),
@@ -73,7 +75,7 @@ class CacheEvictionTest {
         )
 
         connectionManager.addHost(host)
-        delay(50)
+        testScheduler.advanceUntilIdle()
         val runtime = connectionManager.getRuntime(hostId)!!
 
         val sessionCount = 50
@@ -146,16 +148,17 @@ class CacheEvictionTest {
                 })
             }.toString()
             runtime.gatewayClient.handleIncomingMessage(completeJson)
-            delay(20)
+            testScheduler.advanceUntilIdle()
 
             // Unsubscribe
             job.cancel()
 
             // Release session explicitly
             repository.releaseSession(session.id)
+            testScheduler.advanceUntilIdle()
         }
 
-        delay(100)
+        testScheduler.advanceUntilIdle()
 
         val messagesCacheSize = getInternalMapSize(repository, "sessionMessagesState")
         val sessionExecSize = getInternalMapSize(repository, "sessionExecutingState")

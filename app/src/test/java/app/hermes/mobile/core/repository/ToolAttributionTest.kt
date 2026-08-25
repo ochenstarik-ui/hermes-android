@@ -9,12 +9,11 @@ import app.hermes.mobile.core.storage.FakeHostDao
 import app.hermes.mobile.core.storage.FakeUnifiedSessionDao
 import app.hermes.mobile.core.storage.HostBindingEntity
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -27,10 +26,12 @@ import org.junit.Test
  * and thinking deltas, tools and thinking are strictly bound to their respective host and
  * explicit messageId, avoiding false attribution.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class ToolAttributionTest {
 
     @Test
-    fun testTwoConcurrentHostsAttributionAndThinkingIsolation() = runBlocking {
+    fun testTwoConcurrentHostsAttributionAndThinkingIsolation() = runTest {
+        val testDispatcher = StandardTestDispatcher(testScheduler)
         val hostAId = HermesHostId("host-a")
         val hostBId = HermesHostId("host-b")
 
@@ -40,14 +41,14 @@ class ToolAttributionTest {
         val hostDao = FakeHostDao()
         val sessionDao = FakeUnifiedSessionDao()
         val tokenVault = InMemoryTokenVault()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = CoroutineScope(SupervisorJob() + testDispatcher)
 
         val connectionManager = HermesConnectionManager(
             hostDao = hostDao,
             tokenVault = tokenVault,
             scope = scope,
             runtimeFactory = { parentScope, h ->
-                val childScope = CoroutineScope(SupervisorJob(parentScope.coroutineContext[Job]) + Dispatchers.Default)
+                val childScope = CoroutineScope(SupervisorJob(parentScope.coroutineContext[Job]) + testDispatcher)
                 HermesHostRuntime(
                     initialHost = h,
                     gatewayClient = JsonRpcGatewayClient(scope = childScope),
@@ -65,7 +66,7 @@ class ToolAttributionTest {
 
         connectionManager.addHost(hostA)
         connectionManager.addHost(hostB)
-        delay(50)
+        testScheduler.advanceUntilIdle()
 
         val session = repository.createUnifiedSession(title = "Dual Host Attribution Test", initialHostId = hostAId)
         val rtSessionA = "rt_session_host_a"
@@ -92,6 +93,7 @@ class ToolAttributionTest {
                 state = BindingState.RUNNING.name
             )
         )
+        testScheduler.advanceUntilIdle()
 
         val runtimeA = connectionManager.getRuntime(hostAId)!!
         val runtimeB = connectionManager.getRuntime(hostBId)!!
@@ -127,7 +129,7 @@ class ToolAttributionTest {
             })
         }.toString())
 
-        delay(30)
+        testScheduler.advanceUntilIdle()
 
         // 3. Host A streams thinking delta for msgA
         runtimeA.gatewayClient.handleIncomingMessage(buildJsonObject {
@@ -187,7 +189,7 @@ class ToolAttributionTest {
             })
         }.toString())
 
-        delay(30)
+        testScheduler.advanceUntilIdle()
 
         // 7. Update tool progress and completion for host A
         runtimeA.gatewayClient.handleIncomingMessage(buildJsonObject {
@@ -246,7 +248,7 @@ class ToolAttributionTest {
             })
         }.toString())
 
-        delay(50)
+        testScheduler.advanceUntilIdle()
 
         val messages = repository.getSessionMessages(session.id).value
         val msgA = messages.find { it.id == msgAId }
@@ -271,21 +273,22 @@ class ToolAttributionTest {
     }
 
     @Test
-    fun testThinkingDeltaWithExplicitMessageIdDoesNotFallBackToLastAssistant() = runBlocking {
+    fun testThinkingDeltaWithExplicitMessageIdDoesNotFallBackToLastAssistant() = runTest {
+        val testDispatcher = StandardTestDispatcher(testScheduler)
         val hostAId = HermesHostId("host-a")
         val hostA = HermesHost(id = hostAId, displayName = "Host A", baseUrl = "http://host-a:9119")
 
         val hostDao = FakeHostDao()
         val sessionDao = FakeUnifiedSessionDao()
         val tokenVault = InMemoryTokenVault()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = CoroutineScope(SupervisorJob() + testDispatcher)
 
         val connectionManager = HermesConnectionManager(
             hostDao = hostDao,
             tokenVault = tokenVault,
             scope = scope,
             runtimeFactory = { parentScope, h ->
-                val childScope = CoroutineScope(SupervisorJob(parentScope.coroutineContext[Job]) + Dispatchers.Default)
+                val childScope = CoroutineScope(SupervisorJob(parentScope.coroutineContext[Job]) + testDispatcher)
                 HermesHostRuntime(
                     initialHost = h,
                     gatewayClient = JsonRpcGatewayClient(scope = childScope),
@@ -302,7 +305,7 @@ class ToolAttributionTest {
         )
 
         connectionManager.addHost(hostA)
-        delay(50)
+        testScheduler.advanceUntilIdle()
 
         val session = repository.createUnifiedSession(title = "Message Targeting Test", initialHostId = hostAId)
         val rtSessionA = "rt_session_host_a"
@@ -317,6 +320,7 @@ class ToolAttributionTest {
                 state = BindingState.RUNNING.name
             )
         )
+        testScheduler.advanceUntilIdle()
 
         val runtimeA = connectionManager.getRuntime(hostAId)!!
 
@@ -351,7 +355,7 @@ class ToolAttributionTest {
             })
         }.toString())
 
-        delay(30)
+        testScheduler.advanceUntilIdle()
 
         // Send thinking delta explicitly targeted at msg1Id
         runtimeA.gatewayClient.handleIncomingMessage(buildJsonObject {
@@ -367,7 +371,7 @@ class ToolAttributionTest {
             })
         }.toString())
 
-        delay(30)
+        testScheduler.advanceUntilIdle()
 
         val messages = repository.getSessionMessages(session.id).value
         val msg1 = messages.find { it.id == msg1Id }

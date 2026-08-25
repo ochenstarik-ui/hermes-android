@@ -22,7 +22,7 @@ import app.hermes.mobile.core.model.UnifiedSession
 import app.hermes.mobile.core.model.UnifiedSessionId
 import app.hermes.mobile.core.pairing.CanonicalEndpoint
 import app.hermes.mobile.core.pairing.HermesPairingPayload
-import app.hermes.mobile.core.security.NativeAuthTokens
+import app.hermes.mobile.core.model.NativeAuthTokens
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -62,7 +62,8 @@ class ReleaseSerializationTest {
             refreshToken = "refresh-secret",
             tokenType = "Bearer",
             expiresIn = 3600L,
-            scope = "read write"
+            provider = "github",
+            userId = "user-123"
         )
         val serializedTokens = json.encodeToString(tokens)
         val deserializedTokens = json.decodeFromString<NativeAuthTokens>(serializedTokens)

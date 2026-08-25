@@ -31,6 +31,8 @@ class SessionCreateRaceTest {
         val repoScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
         val createCallCount = AtomicInteger(0)
+        val firstCreateStarted = CompletableDeferred<Unit>()
+        val unblockCreate = CompletableDeferred<Unit>()
 
         val mockGatewayClient = mockk<JsonRpcGatewayClient>(relaxed = true)
         val runtimeScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -40,7 +42,8 @@ class SessionCreateRaceTest {
         coEvery { mockGatewayClient.awaitGatewayReady(any()) } returns Unit
         coEvery { mockGatewayClient.createSession(any(), any()) } coAnswers {
             createCallCount.incrementAndGet()
-            delay(100) // simulate network delay to expose race condition
+            firstCreateStarted.complete(Unit)
+            unblockCreate.await()
             CreateSessionResult(
                 durableId = DurableSessionId("dur_race_1"),
                 runtimeId = RuntimeSessionId("rt_race_1")
@@ -71,10 +74,8 @@ class SessionCreateRaceTest {
         )
 
         connectionManager.addHost(host)
-        delay(50)
 
         val session = repository.createUnifiedSession(title = "Race Test Session", initialHostId = hostId)
-        delay(50)
 
         // Launch 2 concurrent sendPrompt calls for the same session & host
         val deferred1 = async(Dispatchers.Default) {
@@ -83,6 +84,11 @@ class SessionCreateRaceTest {
         val deferred2 = async(Dispatchers.Default) {
             repository.sendPrompt(session.id, "Prompt from coroutine 2")
         }
+
+        // Wait until the first createSession call enters and acquires the lock
+        firstCreateStarted.await()
+        // Unblock creation
+        unblockCreate.complete(Unit)
 
         awaitAll(deferred1, deferred2)
 
