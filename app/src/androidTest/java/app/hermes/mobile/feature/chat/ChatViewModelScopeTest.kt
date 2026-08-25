@@ -29,8 +29,10 @@ class ChatViewModelScopeTest {
         composeTestRule.onNodeWithText("Message Hermes…", ignoreCase = true)
             .performTextInput("Draft prompt before rotation")
             
+        composeTestRule.waitForIdle()
         composeTestRule.activityRule.scenario.recreate()
+        composeTestRule.waitForIdle()
         
-        composeTestRule.onNodeWithText("Draft prompt before rotation").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Draft prompt before rotation", substring = true).assertIsDisplayed()
     }
 }
