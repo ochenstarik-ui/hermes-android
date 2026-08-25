@@ -6,7 +6,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -20,7 +20,7 @@ import java.nio.charset.StandardCharsets
 class LoopbackCancellationTest {
 
     @Test
-    fun testLoopbackAuthCancellationClosesSocketAndReleasesThread() = runTest {
+    fun testLoopbackAuthCancellationClosesSocketAndReleasesThread() = runBlocking {
         val authManager = PkceLoopbackAuthManager(
             restClient = HermesRestClient(),
             tokenVault = InMemoryTokenVault()
