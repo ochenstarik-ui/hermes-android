@@ -1,6 +1,6 @@
 package app.hermes.mobile.feature.chat
 
-import androidx.compose.ui.test.assertExists
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -52,6 +52,6 @@ class ChatViewModelScopeTest {
             composeTestRule.onAllNodesWithText("Draft prompt before rotation", substring = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        composeTestRule.onNodeWithText("Draft prompt before rotation", substring = true).assertExists()
+        composeTestRule.onNodeWithText("Draft prompt before rotation", substring = true).assertIsDisplayed()
     }
 }
