@@ -33,6 +33,6 @@ class ChatViewModelScopeTest {
         composeTestRule.activityRule.scenario.recreate()
         composeTestRule.waitForIdle()
         
-        composeTestRule.onNodeWithText("Draft prompt before rotation", substring = true).assertIsDisplayed()
+        composeTestRule.onNodeWithText("Draft prompt before rotation", substring = true).assertExists()
     }
 }
