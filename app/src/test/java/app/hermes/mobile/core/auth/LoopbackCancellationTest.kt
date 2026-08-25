@@ -27,7 +27,8 @@ class LoopbackCancellationTest {
         )
 
         val authUrlDeferred = CompletableDeferred<String>()
-        val job = launch(Dispatchers.IO) {
+        val testScope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO)
+        val job = testScope.launch {
             authManager.startAuthFlow(
                 context = null,
                 connectionId = "test-host",

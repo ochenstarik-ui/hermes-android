@@ -154,11 +154,13 @@ class HermesConnectionManager(
 
     suspend fun addHost(host: HermesHost) {
         hostDao.insertOrUpdateHost(host.toEntity())
+        _hosts.value = _hosts.value.filter { it.id != host.id } + host
         getOrCreateRuntime(host)
     }
 
     suspend fun updateHost(host: HermesHost) {
         hostDao.insertOrUpdateHost(host.toEntity())
+        _hosts.value = _hosts.value.map { if (it.id == host.id) host else it }
         val rt = runtimes[host.id]
         rt?.updateHost(host)
     }
@@ -168,6 +170,7 @@ class HermesConnectionManager(
         rt?.close()
         tokenVault.clearTokens(hostId.value)
         hostDao.deleteHost(hostId.value)
+        _hosts.value = _hosts.value.filter { it.id != hostId }
         if (_activeHostId.value == hostId) {
             _activeHostId.value = _hosts.value.firstOrNull { it.id != hostId }?.id
         }
@@ -175,6 +178,7 @@ class HermesConnectionManager(
 
     suspend fun connectHost(hostId: HermesHostId): Result<Unit> {
         val host = _hosts.value.find { it.id == hostId }
+            ?: hostDao.getHost(hostId.value)?.toDomain()
             ?: return Result.failure(IllegalArgumentException("Host not found: ${hostId.value}"))
         val rt = getOrCreateRuntime(host)
         return rt.connect()

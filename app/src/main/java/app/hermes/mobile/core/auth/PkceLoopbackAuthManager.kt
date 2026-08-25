@@ -9,8 +9,8 @@ import app.hermes.mobile.core.network.HermesRestClient
 import app.hermes.mobile.core.security.TokenVault
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.job
-import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -62,11 +62,6 @@ class PkceLoopbackAuthManager(
             val port = serverSocket.localPort
             serverSocket.soTimeout = 180_000 // 3 minutes timeout
 
-            currentCoroutineContext().job.invokeOnCompletion {
-                try {
-                    serverSocket?.close()
-                } catch (_: Throwable) {}
-            }
 
             val redirectUri = "http://127.0.0.1:$port/callback"
 
@@ -92,7 +87,22 @@ class PkceLoopbackAuthManager(
             var retries = 0
             val MAX_RETRIES = 5
             while (authCode == null && retries < MAX_RETRIES) {
-                val socket: Socket = runInterruptible(Dispatchers.IO) { serverSocket!!.accept() }
+                currentCoroutineContext().ensureActive()
+                val socket: Socket = suspendCancellableCoroutine { cont ->
+                    cont.invokeOnCancellation {
+                        try {
+                            serverSocket?.close()
+                        } catch (_: Throwable) {}
+                    }
+                    try {
+                        val s = serverSocket!!.accept()
+                        cont.resumeWith(Result.success(s))
+                    } catch (e: Throwable) {
+                        if (!cont.isCancelled) {
+                            cont.resumeWith(Result.failure(e))
+                        }
+                    }
+                }
                 try {
                     authCode = handleCallbackSocket(socket, state)
                 } catch (e: Exception) {
