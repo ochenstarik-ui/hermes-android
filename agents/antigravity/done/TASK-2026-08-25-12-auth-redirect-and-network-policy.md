@@ -40,17 +40,31 @@
 - 7. Dismissing sudo/secret dialog does not send empty passwords (проверено — чисто).
 - 8. No made-up strings (like "cancel"/"deny") sent to gateway without contract support (проверено — чисто).
 - 9. Tests verify actual network policy, loopback cancellation, and repository behavior (проверено — чисто).
-- 10. Actual `gh run list` and `gh run view <run-id>` with all \\✓\\ checkmarks are attached (проверено — чисто).
+- 10. Actual `gh run list` and `gh run view <run-id>` with all \✓\ checkmarks are attached (проверено — чисто).
 
 ## CI Verification Logs (gh run list & gh run view)
 
+```
+$ gh run list --limit 3
+completed   success feat(auth): task 12 cancellable loopback auth...   CI  main    push    32807783888 7m2s    2026-08-25T04:08:01Z
 
-## CI Output
- * main CI · 32806537905 Triggered via push about 3 minutes ago  JOBS * Android Unit Tests & Lint & Build (ID 97677645517) ✓ Rust hermes-pair Tests & Clippy in 1m37s (ID 97677645655) ✓ Android Instrumented Tests in 3m8s (ID 97677645710) - Build Hermes Pair (Linux) (ID 97677646384) - Build Hermes Pair (Windows) (ID 97677646536)  ANNOTATIONS ! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/ Rust hermes-pair Tests & Clippy: .github#2  ! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-java@v4, actions/upload-artifact@v4, gradle/actions/setup-gradle@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/ Android Instrumented Tests: .github#3  ! setup-java v4 is deprecated and will no longer receive updates. Please migrate to actions/setup-java@v5. Android Instrumented Tests: .github#15   ARTIFACTS android-test-reports  For more information about a job, try: gh run view --job=<job-id> View this run on GitHub: https://github.com/ochenstarik-ui/hermes-android/actions/runs/32806537905
+$ gh run view 32807783888
+✓ main CI · 32807783888
+Triggered via push about 7 minutes ago
 
+JOBS
+✓ Android Unit Tests & Lint & Build in 6m46s (ID 97681161214)
+✓ Android Instrumented Tests in 2m7s (ID 97681161393)
+✓ Rust hermes-pair Tests & Clippy in 1m39s (ID 97681161593)
+- Build Hermes Pair (Windows) in 0s (ID 97681162026)
+- Build Hermes Pair (Linux) in 0s (ID 97681162115)
+- Publish GitHub Release (ID 97682412028)
 
-## CI Output (Post-Fix)
-All 147 unit tests passed successfully on latest commit.
+ARTIFACTS
+lint-reports
+unit-test-reports
+android-test-reports
+```
 
 ## Вердикт оркестратора
 
